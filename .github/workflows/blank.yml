@@ -28,32 +28,45 @@ jobs:
         gradle-version: 8.7
         cache-disabled: true
 
-    - name: Genesis: Atomic Reconstruction
+    - name: Atomic Project Reconstruction
       run: |
-        # 1. 物理ディレクトリの再構築
+        # 物理ディレクトリの再構築
         rm -rf app
         mkdir -p app/src/main/java/proxyhand/android
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
 
-        # 2. 設定ファイルの強制生成
+        # 設定ファイルの強制生成
         echo "include ':app'" > settings.gradle
-        cat <<EOF > build.gradle
+
+        cat > build.gradle << 'EOF'
         buildscript {
             repositories { google(); mavenCentral() }
-            dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" }
+            dependencies { 
+                classpath 'com.android.tools.build:gradle:8.2.2'
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" 
+            }
         }
         allprojects { repositories { google(); mavenCentral() } }
         EOF
 
-        cat <<EOF > app/build.gradle
+        cat > app/build.gradle << 'EOF'
         plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
         android {
             namespace 'proxyhand.android'
             compileSdk 34
-            defaultConfig { applicationId "proxyhand.android"; minSdk 26; targetSdk 34; versionCode 1; versionName "1.0" }
+            defaultConfig { 
+                applicationId "proxyhand.android"
+                minSdk 26
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+            }
             buildFeatures { viewBinding true }
-            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+            compileOptions { 
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
             kotlinOptions { jvmTarget = '17' }
         }
         dependencies {
@@ -66,46 +79,32 @@ jobs:
         }
         EOF
 
-        # 3. リソースの強制生成（Binding名の衝突を回避）
-        cat <<EOF > app/src/main/res/layout/activity_main.xml
+        # リソースの強制生成
+        cat > app/src/main/res/layout/activity_main.xml << 'EOF'
         <?xml version="1.0" encoding="utf-8"?>
         <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
             xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent">
-            <LinearLayout android:id="@+id/top_bar" android:layout_width="0dp" android:layout_height="wrap_content"
+            <LinearLayout android:id="@+id/topBar" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:orientation="horizontal" android:padding="8dp" app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_of="parent">
-                <Button android:id="@+id/btn_gemini" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Gemini" />
-                <Button android:id="@+id/btn_chatgpt" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ChatGPT" />
-                <Button android:id="@+id/btn_copilot" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Copilot" />
-                <Button android:id="@+id/btn_all" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ALL" />
+                app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent">
+                <Button android:id="@+id/btnGemini" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Gemini" />
+                <Button android:id="@+id/btnChatGPT" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ChatGPT" />
+                <Button android:id="@+id/btnCopilot" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Copilot" />
+                <Button android:id="@+id/btnAll" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ALL" />
             </LinearLayout>
-            <WebView android:id="@+id/web_view_main" android:layout_width="0dp" android:layout_height="0dp"
-                app:layout_constraintTop_toBottomOf="@id/top_bar" app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_of="parent" />
+            <WebView android:id="@+id/webView" android:layout_width="0dp" android:layout_height="0dp"
+                app:layout_constraintTop_toBottomOf="@id/topBar" app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
         </androidx.constraintlayout.widget.ConstraintLayout>
         EOF
 
-        # 4. マニフェストの生成
-        cat <<EOF > app/src/main/AndroidManifest.xml
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-            <application android:label="Proxyhand ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                <activity android:name=".MainActivity" android:exported="true">
-                    <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-                </activity>
-                <service android:name=".MetronService" android:exported="false" android:foregroundServiceType="dataSync" />
-            </application>
-        </manifest>
-        EOF
-
-        # 5. ZIPから「魂（コード）」を抽出し、物理配置（自動修正含む）
-        unzip -o Proxyhand-Android.zip -d raw_data || true
-        find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        
-        # IDの不一致を物理的に強制修正
-        sed -i 's/binding.webView/binding.webViewMain/g' app/src/main/java/proxyhand/android/MainActivity.kt
-        sed -i 's/binding.btnGemini/binding.btnGemini/g' app/src/main/java/proxyhand/android/MainActivity.kt # 修正不要だが確認用
+        # ソース配置とID修正（ZIPが存在すれば使用）
+        if [ -f "Proxyhand-Android.zip" ]; then
+          unzip -o Proxyhand-Android.zip -d raw_data
+          find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+          find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
+          find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
+        fi
 
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
@@ -116,5 +115,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Proxyhand-ARC-Genesis
+        name: Proxyhand-ARC-Build
         path: "app/build/outputs/apk/debug/app-debug.apk"
