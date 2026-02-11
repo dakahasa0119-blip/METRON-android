@@ -19,22 +19,24 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 🔥 これが、ZIPに足りないGradle環境をクラウド上に「受肉」させる魔法です
+    # 🔥 キャッシュ機能を無効化（dependency-graphも無効化して障害を回避）
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.7
+        cache-disabled: true
+        dependency-graph: disabled
 
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
 
-    # 🔥 WrapperがなくてもシステムGradleでビルドを強行
     - name: Build APK
       run: |
         if [ -d "Proxyhand-Android" ]; then
           cd Proxyhand-Android
         fi
-        gradle assembleDebug --stacktrace
+        # --no-daemon でメモリ消費を抑え、より確実に
+        gradle assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
