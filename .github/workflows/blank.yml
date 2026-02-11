@@ -18,18 +18,20 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        # cache: gradle  <-- ❌ これを削除（解凍前に中身を探してエラーになるため）
 
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
 
-    - name: Generate Gradle Wrapper
+    # 🔥 最新の Gradle 9.x を避け、安定版 8.7 を強制インストールして Wrapper を作る
+    - name: Generate Gradle Wrapper (Fixed Version)
       run: |
-        # ZIPの中身が Proxyhand-Android/ フォルダでラップされているか確認
         if [ -d "Proxyhand-Android" ]; then
           cd Proxyhand-Android
         fi
-        gradle wrapper --gradle-version 8.2
+        wget https://services.gradle.org/distributions/gradle-8.7-bin.zip
+        unzip -q gradle-8.7-bin.zip
+        export PATH=$PWD/gradle-8.7/bin:$PATH
+        gradle wrapper --gradle-version 8.7
         chmod +x gradlew
 
     - name: Build APK
@@ -37,7 +39,8 @@ jobs:
         if [ -d "Proxyhand-Android" ]; then
           cd Proxyhand-Android
         fi
-        ./gradlew assembleDebug
+        # 念のためクリーンしてからビルド
+        ./gradlew clean assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
