@@ -17,24 +17,28 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # 【重要】GitHub公式のアクションで Gradle 8.7 環境を強制構築
+    - name: Setup Gradle 8.7 Official
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: 8.7
+
     - name: Unzip project
-      run: unzip Proxyhand-Android.zip -d raw_data
+      run: unzip -o Proxyhand-Android.zip -d .
 
-    # ① ZIP 内の build.gradle を使って wrapper を生成（ここは Gradle 9.x でOK）
-    - name: Generate Wrapper
-      run: |
-        cd raw_data/Proxyhand-Android
-        gradle wrapper --gradle-version 8.7
-
-    # ② 生成された gradlew（8.7）でビルド
+    # 【修正】gradlew (jarが無い) を使わず、インストールした直系の gradle コマンドを使用
     - name: Build APK
       run: |
-        cd raw_data/Proxyhand-Android
-        chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace --no-daemon
+        # ディレクトリ移動（Proxyhand-Android フォルダがある場合）
+        if [ -d "Proxyhand-Android" ]; then
+          cd Proxyhand-Android
+        fi
+        
+        # システムにインストールされた Gradle 8.7 で直接ビルド
+        gradle assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: raw_data/Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk
+        path: "**/app/build/outputs/apk/debug/app-debug.apk"
