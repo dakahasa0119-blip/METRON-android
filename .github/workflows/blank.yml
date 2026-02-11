@@ -28,22 +28,19 @@ jobs:
         gradle-version: 8.7
         cache-disabled: true
 
-    - name: Reconstruct Project (Core Override)
+    - name: Atomic Project Reconstruction
       run: |
+        # 物理ディレクトリ作成
         mkdir -p app/src/main/java/proxyhand/android
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
 
-        # 1. ビルド設定の完全同期
+        # 1. ビルド設定ファイルの強制生成
         echo "include ':app'" > settings.gradle
-        
         cat <<EOF > build.gradle
         buildscript {
             repositories { google(); mavenCentral() }
-            dependencies { 
-                classpath 'com.android.tools.build:gradle:8.2.2'
-                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" 
-            }
+            dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" }
         }
         allprojects { repositories { google(); mavenCentral() } }
         EOF
@@ -53,13 +50,7 @@ jobs:
         android {
             namespace 'proxyhand.android'
             compileSdk 34
-            defaultConfig { 
-                applicationId "proxyhand.android"
-                minSdk 26
-                targetSdk 34
-                versionCode 1
-                versionName "1.0"
-            }
+            defaultConfig { applicationId "proxyhand.android"; minSdk 26; targetSdk 34; versionCode 1; versionName "1.0" }
             buildFeatures { viewBinding true }
             compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
             kotlinOptions { jvmTarget = '17' }
@@ -74,20 +65,30 @@ jobs:
         }
         EOF
 
-        # 2. ソースコードの物理配置（ZIPからの抽出 & 不足分の補完）
+        # 2. リソースファイルの強制生成（ID参照の整合性確保）
+        cat <<EOF > app/src/main/res/layout/activity_main.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent">
+            <LinearLayout android:id="@+id/topBar" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:padding="8dp" app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent">
+                <Button android:id="@+id/btnGemini" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Gemini" />
+                <Button android:id="@+id/btnChatGPT" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ChatGPT" />
+                <Button android:id="@+id/btnCopilot" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Copilot" />
+                <Button android:id="@+id/btnAll" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ALL AI" />
+            </LinearLayout>
+            <android.webkit.WebView android:id="@+id/webView" android:layout_width="0dp" android:layout_height="0dp"
+                app:layout_constraintTop_toBottomOf="@id/topBar" app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
+        EOF
+
+        # 3. マニフェストとソースの物理配置（ZIPを補助として使用）
         unzip -o Proxyhand-Android.zip -d raw_data || true
-        
-        # 確実に配置するためにパスを固定
-        find raw_data -name "MainActivity.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "MetronService.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "LocalHttpServer.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "JsManager.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "JsBridge.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "DoPostClient.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        
         find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
-        find raw_data -name "activity_main.xml" -exec cp {} app/src/main/res/layout/ \;
         find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
+        find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
 
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
@@ -98,5 +99,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Proxyhand-ARC-Debug
+        name: Proxyhand-ARC-Build
         path: "app/build/outputs/apk/debug/app-debug.apk"
