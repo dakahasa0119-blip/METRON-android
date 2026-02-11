@@ -19,30 +19,36 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # 🔥 Android SDK と Build-Tools を物理的に固定してインストール
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.7
-        cache-disabled: true # 物理障害回避のため継続
+        cache-disabled: true
         dependency-graph: disabled
 
     - name: Unzip and Flatten
       run: |
         unzip -o Proxyhand-Android.zip -d .
-        # 階層が二重になっている場合、中身をカレントに引き出す
         if [ -d "Proxyhand-Android/Proxyhand-Android" ]; then
           mv Proxyhand-Android/Proxyhand-Android/* .
         elif [ -d "Proxyhand-Android" ]; then
           mv Proxyhand-Android/* .
         fi
+        # 物理的に不足している gradlew を生成して権限付与
+        gradle wrapper --gradle-version 8.7
+        chmod +x gradlew
 
-    - name: Build APK (Force)
+    - name: Build APK (with SDK path)
       run: |
-        # 確実に settings.gradle がある場所で実行
-        gradle assembleDebug --stacktrace --no-daemon
+        # ANDROID_HOME を明示的に指定してビルドを完遂させる
+        ./gradlew assembleDebug --stacktrace --no-daemon -Pandroid.sdk.path=$ANDROID_HOME
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: "**/app/build/outputs/apk/debug/app-debug.apk"
+        path: "app/build/outputs/apk/debug/app-debug.apk"
