@@ -21,7 +21,7 @@ jobs:
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.7
-        cache-disabled: true # インフラ不安定回避のため一時オフ
+        cache-disabled: true
 
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
@@ -30,8 +30,8 @@ jobs:
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # プロジェクトディレクトリの特定
-        ROOT_DIR=$(find . -maxdepth 2 -name "app" -type d -exec dirname {} \;)
+        # プロジェクトディレクトリの特定（Proxyhand-Android）
+        ROOT_DIR="Proxyhand-Android"
         cd "$ROOT_DIR"
         
         # 秘密鍵（json）の物理配置
@@ -46,4 +46,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        file: "**/app/build/outputs/apk/debug/app-debug.apk"
+        # 【修正】確定した物理パスを直接指定
+        file: Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk
