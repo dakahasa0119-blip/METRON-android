@@ -27,20 +27,17 @@ jobs:
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # gradlew が存在するディレクトリを物理特定
-        GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
-        cd "$GRADLE_ROOT"
+        # プロジェクトのルート（gradlewがある場所）へ移動
+        cd "$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)"
         
-        # appディレクトリを特定
-        APP_DIR=$(find . -name "app" -type d | head -n 1)
-        
-        # google-services.json を環境変数経由で安全に生成
-        echo "$FIREBASE_JSON" > "$APP_DIR/google-services.json"
+        # appフォルダを特定し、確実に google-services.json を生成
+        TARGET_APP_DIR=$(find . -maxdepth 2 -name "app" -type d | head -n 1)
+        echo "$FIREBASE_JSON" > "${TARGET_APP_DIR}/google-services.json"
 
-        # 依存関係の修正（BoMを使用しつつAnalyticsを追加）
-        sed -i "/dependencies {/a \    implementation 'com.google.firebase:firebase-analytics-ktx:21.5.1'" "$APP_DIR/build.gradle"
+        # 依存関係の注入（Analyticsの追加）
+        sed -i "/dependencies {/a \    implementation 'com.google.firebase:firebase-analytics-ktx:21.5.1'" "${TARGET_APP_DIR}/build.gradle"
         
-        # 権限付与とビルド
+        # 権限付与とビルド実行
         chmod +x gradlew
         ./gradlew assembleDebug --no-daemon
 
