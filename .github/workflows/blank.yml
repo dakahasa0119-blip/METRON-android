@@ -20,15 +20,10 @@ jobs:
     - name: Unzip project
       run: unzip Proxyhand-Android.zip -d raw_data
 
-    - name: Generate Gradle Wrapper
-      run: |
-        cd raw_data/Proxyhand-Android
-        gradle wrapper --gradle-version 8.7
-        chmod +x gradlew
-
     - name: Build APK
       run: |
         cd raw_data/Proxyhand-Android
+        chmod +x gradlew
         ./gradlew assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
