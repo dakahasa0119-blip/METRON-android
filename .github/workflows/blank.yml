@@ -19,7 +19,7 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 🔥 公式アクションで Gradle 8.7 をセットアップ（ライセンス問題も自動解決）
+    # 🔥 これが、ZIPに足りないGradle環境をクラウド上に「受肉」させる魔法です
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
@@ -28,7 +28,7 @@ jobs:
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
 
-    # 🔥 Wrapper がなくても、このアクションなら直接ビルド可能
+    # 🔥 WrapperがなくてもシステムGradleでビルドを強行
     - name: Build APK
       run: |
         if [ -d "Proxyhand-Android" ]; then
