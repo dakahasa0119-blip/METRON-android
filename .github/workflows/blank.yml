@@ -17,22 +17,27 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # キャッシュを使わずにセットアップ（安定性重視）
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.7
-        cache-disabled: true # キャッシュエラーを回避
+        cache-disabled: true
 
-    - name: Inject Firebase Secret
+    - name: Inject Firebase and Build
       run: |
-        # プロジェクト構造に合わせた google-services.json の生成
-        # ディレクトリが存在しない場合は作成
-        mkdir -p app/
+        # プロジェクトルートの特定
+        ROOT_DIR=$(find . -maxdepth 2 -name "app" -type d -exec dirname {} \;)
+        cd $ROOT_DIR
+        
+        # google-services.json の生成
         echo '${{ secrets.FIREBASE_SERVICES_JSON }}' > app/google-services.json
 
-    - name: Build with Gradle
-      run: ./gradlew assembleDebug --no-daemon
+        # 依存関係の修正：バージョンを明示的に指定して解決
+        sed -i "/dependencies {/a \    implementation 'com.google.firebase:firebase-analytics-ktx:21.5.1'" app/build.gradle
+        
+        # ビルド実行
+        chmod +x gradlew
+        ./gradlew assembleDebug --no-daemon
 
     - name: Upload to Firebase App Distribution
       uses: wzieba/Firebase-Distribution-Github-Action@v1
@@ -40,4 +45,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        file: app/build/outputs/apk/debug/app-debug.apk
+        # 動的なパス指定で確実にAPKを捕捉
+        file: "**/app/build/outputs/apk/debug/app-debug.apk"
