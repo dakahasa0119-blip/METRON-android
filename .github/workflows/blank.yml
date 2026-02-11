@@ -18,18 +18,16 @@ jobs:
         distribution: 'temurin'
 
     - name: Unzip project
-      run: |
-        unzip Proxyhand-Android.zip -d raw_data
-        cp -r raw_data/Proxyhand-Android/* .
-
-    - name: Generate Wrapper (Gradle 8.7)
-      run: gradle wrapper --gradle-version 8.7
+      run: unzip Proxyhand-Android.zip -d raw_data
 
     - name: Build APK
-      run: ./gradlew assembleDebug --stacktrace --no-daemon
+      run: |
+        cd raw_data/Proxyhand-Android
+        chmod +x gradlew
+        ./gradlew assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: raw_data/Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk
