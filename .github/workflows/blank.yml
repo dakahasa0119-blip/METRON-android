@@ -1,39 +1,53 @@
-Skip to content
-dakahasa0119-blip
-METRON-android
-Repository navigation
-Code
-Issues
-Pull requests
-Actions
-Projects
-Wiki
-Security
-Insights
-Settings
-Build and Deploy to Firebase
-Update blank.yml #40
-All jobs
-Run details
-Annotations
-1 error
-build
-failed now in 26s
-Search logs
-2s
-17s
-0s
-1s
-2s
-0s
-0s
-Run ./gradlew assembleDebug --no-daemon
-/home/runner/work/_temp/3cdaaaa5-c981-49d0-8503-9e2564fc4329.sh: line 1: ./gradlew: No such file or directory
-Error: Process completed with exit code 127.
-0s
-0s
-1s
-0s
-0s
-Update blank.yml · dakahasa0119-blip/METRON-android@1c40893
- 
+name: Build and Deploy to Firebase
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: 8.7
+        cache-disabled: true
+
+    - name: Inject Firebase and Build
+      env:
+        FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
+      run: |
+        # gradlew が存在するディレクトリを物理特定
+        GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
+        cd "$GRADLE_ROOT"
+        
+        # appディレクトリを特定
+        APP_DIR=$(find . -name "app" -type d | head -n 1)
+        
+        # google-services.json を環境変数経由で安全に生成
+        echo "$FIREBASE_JSON" > "$APP_DIR/google-services.json"
+
+        # 依存関係の修正（BoMを使用しつつAnalyticsを追加）
+        sed -i "/dependencies {/a \    implementation 'com.google.firebase:firebase-analytics-ktx:21.5.1'" "$APP_DIR/build.gradle"
+        
+        # 権限付与とビルド
+        chmod +x gradlew
+        ./gradlew assembleDebug --no-daemon
+
+    - name: Upload to Firebase App Distribution
+      uses: wzieba/Firebase-Distribution-Github-Action@v1
+      with:
+        appId: ${{ secrets.FIREBASE_APP_ID }}
+        token: ${{ secrets.FIREBASE_TOKEN }}
+        groups: testers
+        file: "**/app/build/outputs/apk/debug/app-debug.apk"
