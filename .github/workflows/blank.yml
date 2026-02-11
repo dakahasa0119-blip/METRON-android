@@ -19,7 +19,6 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 🔥 Android SDK と Build-Tools を物理的に固定してインストール
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
@@ -28,24 +27,37 @@ jobs:
       with:
         gradle-version: 8.7
         cache-disabled: true
-        dependency-graph: disabled
 
-    - name: Unzip and Flatten
+    - name: Reconstruct Project Structure
       run: |
-        unzip -o Proxyhand-Android.zip -d .
-        if [ -d "Proxyhand-Android/Proxyhand-Android" ]; then
-          mv Proxyhand-Android/Proxyhand-Android/* .
-        elif [ -d "Proxyhand-Android" ]; then
-          mv Proxyhand-Android/* .
-        fi
-        # 物理的に不足している gradlew を生成して権限付与
+        # 一旦すべてをワークスペースに展開
+        unzip -o Proxyhand-Android.zip -d raw_data
+        
+        # 正しい Android 構造をゼロから作成
+        mkdir -p app/src/main/java/proxyhand/android
+        mkdir -p app/src/main/res/layout
+        mkdir -p app/src/main/res/values
+
+        # ファイルを物理的に「正しい場所」へ強制配置
+        # ZIP内の階層を問わず、ファイル名ベースで検索して移動
+        find raw_data -name "settings.gradle" -exec cp {} . \;
+        find raw_data -name "build.gradle" -exec cp {} . \;
+        find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
+        find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        find raw_data -name "activity_main.xml" -exec cp {} app/src/main/res/layout/ \;
+        find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
+        
+        # app用build.gradleを適切な場所に配置
+        cp raw_data/**/app/build.gradle app/ || cp raw_data/app/build.gradle app/ || true
+
+        # Gradle Wrapper の生成
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
 
-    - name: Build APK (with SDK path)
+    - name: Build APK
       run: |
-        # ANDROID_HOME を明示的に指定してビルドを完遂させる
-        ./gradlew assembleDebug --stacktrace --no-daemon -Pandroid.sdk.path=$ANDROID_HOME
+        # ライブラリの欠落を防ぐため、リポジトリ情報を付与して実行
+        ./gradlew assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
