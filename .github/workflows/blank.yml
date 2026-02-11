@@ -20,6 +20,13 @@ jobs:
     - name: Unzip project
       run: unzip Proxyhand-Android.zip -d raw_data
 
+    # ① ZIP 内の build.gradle を使って wrapper を生成（ここは Gradle 9.x でOK）
+    - name: Generate Wrapper
+      run: |
+        cd raw_data/Proxyhand-Android
+        gradle wrapper --gradle-version 8.7
+
+    # ② 生成された gradlew（8.7）でビルド
     - name: Build APK
       run: |
         cd raw_data/Proxyhand-Android
