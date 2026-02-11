@@ -19,30 +19,22 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # 🔥 公式アクションで Gradle 8.7 をセットアップ（ライセンス問題も自動解決）
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: 8.7
+
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
 
-    # 🔥 SDKライセンスを自動承諾する（これが今回の解決策）
-    - name: Accept Android SDK Licenses
-      run: yes | sdkmanager --licenses || true
-
-    - name: Generate Gradle Wrapper (Fixed Version)
-      run: |
-        if [ -d "Proxyhand-Android" ]; then
-          cd Proxyhand-Android
-        fi
-        wget https://services.gradle.org/distributions/gradle-8.7-bin.zip
-        unzip -q gradle-8.7-bin.zip
-        export PATH=$PWD/gradle-8.7/bin:$PATH
-        gradle wrapper --gradle-version 8.7
-        chmod +x gradlew
-
+    # 🔥 Wrapper がなくても、このアクションなら直接ビルド可能
     - name: Build APK
       run: |
         if [ -d "Proxyhand-Android" ]; then
           cd Proxyhand-Android
         fi
-        ./gradlew assembleDebug --stacktrace
+        gradle assembleDebug --stacktrace
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
