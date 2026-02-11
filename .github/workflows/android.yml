@@ -18,27 +18,32 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: gradle
 
-    # 🔥 ZIP を展開
+    # 🔥 解凍先をカレントディレクトリに固定
     - name: Unzip project
-      run: unzip Proxyhand-Android.zip -d Proxyhand-Android
+      run: unzip -o Proxyhand-Android.zip -d .
 
-    # 🔥 Gradle Wrapper を自動生成（ここが最重要）
+    # 🔥 階層を確認し、Wrapperを生成（ディレクトリ名の揺れを許容）
     - name: Generate Gradle Wrapper
       run: |
-        cd Proxyhand-Android
+        if [ -d "Proxyhand-Android" ]; then
+          cd Proxyhand-Android
+        fi
         gradle wrapper --gradle-version 8.2
+        chmod +x gradlew
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x Proxyhand-Android/gradlew
-
+    # 🔥 ビルド実行
     - name: Build APK
       run: |
-        cd Proxyhand-Android
+        if [ -d "Proxyhand-Android" ]; then
+          cd Proxyhand-Android
+        fi
         ./gradlew assembleDebug
 
+    # 🔥 APKを回収（ワイルドカードで階層ズレを吸収）
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk
+        path: "**/app/build/outputs/apk/debug/app-debug.apk"
