@@ -37,40 +37,57 @@ jobs:
         
         unzip -o Proxyhand-Android.zip -d raw_data
         
-        # ソースコードとリソースを配置
+        # ソースコードを正しいパッケージ構造へ配置
         find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
         find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
         find raw_data -name "activity_main.xml" -exec cp {} app/src/main/res/layout/ \;
         find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
 
-        # 🔥 【重要】正しい設定ファイルを直接生成（上書き）
+        # 🔥 settings.gradle の固定
         echo "include ':app'" > settings.gradle
         
+        # 🔥 プロジェクトルートのビルドスクリプト固定
         cat <<EOF > build.gradle
         buildscript {
             repositories { google(); mavenCentral() }
-            dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" }
+            dependencies { 
+                classpath 'com.android.tools.build:gradle:8.2.2'
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" 
+            }
         }
         allprojects { repositories { google(); mavenCentral() } }
         EOF
 
+        # 🔥 app/build.gradle の依存関係をより強固に修正
         cat <<EOF > app/build.gradle
-        plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+        plugins { 
+            id 'com.android.application'
+            id 'org.jetbrains.kotlin.android'
+        }
         android {
             namespace 'proxyhand.android'
             compileSdk 34
-            defaultConfig { applicationId "proxyhand.android"; minSdk 26; targetSdk 34; versionCode 1; versionName "1.0" }
+            defaultConfig { 
+                applicationId "proxyhand.android"
+                minSdk 26
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+            }
             buildFeatures { viewBinding true }
-            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+            compileOptions { 
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
             kotlinOptions { jvmTarget = '17' }
         }
         dependencies {
-            implementation 'androidx.core:core-ktx:1.13.1'
-            implementation 'androidx.appcompat:appcompat:1.7.0'
-            implementation 'com.google.android.material:material:1.12.0'
-            implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+            implementation 'androidx.core:core-ktx:1.10.1'
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+            implementation 'com.google.android.material:material:1.9.0'
+            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
             implementation 'org.nanohttpd:nanohttpd:2.3.1'
-            implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+            implementation 'com.squareup.okhttp3:okhttp:4.11.0'
         }
         EOF
 
