@@ -22,7 +22,10 @@ jobs:
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
 
-    # 🔥 最新の Gradle 9.x を避け、安定版 8.7 を強制インストールして Wrapper を作る
+    # 🔥 SDKライセンスを自動承諾する（これが今回の解決策）
+    - name: Accept Android SDK Licenses
+      run: yes | sdkmanager --licenses || true
+
     - name: Generate Gradle Wrapper (Fixed Version)
       run: |
         if [ -d "Proxyhand-Android" ]; then
@@ -39,8 +42,7 @@ jobs:
         if [ -d "Proxyhand-Android" ]; then
           cd Proxyhand-Android
         fi
-        # 念のためクリーンしてからビルド
-        ./gradlew clean assembleDebug
+        ./gradlew assembleDebug --stacktrace
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
