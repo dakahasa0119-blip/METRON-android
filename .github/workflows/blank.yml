@@ -28,72 +28,35 @@ jobs:
         gradle-version: 8.7
         cache-disabled: true
 
-    - name: Genesis: Hard Override
+    - name: Atomic Reconstruction (Stable Syntax)
       run: |
         rm -rf app
         mkdir -p app/src/main/java/proxyhand/android
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
 
-        # 1. settings.gradle
-        echo "include ':app'" > settings.gradle
+        # 設定ファイルの生成（インデント事故を防ぐため printf を使用）
+        printf "include ':app'\n" > settings.gradle
 
-        # 2. build.gradle (Root)
-        cat > build.gradle << 'EOF'
-        buildscript {
-            repositories { google(); mavenCentral() }
-            dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0" }
-        }
-        allprojects { repositories { google(); mavenCentral() } }
-        EOF
+        printf "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0' }\n}\nallprojects { repositories { google(); mavenCentral() } }\n" > build.gradle
 
-        # 3. app/build.gradle (ViewBindingを無効化し安定性を優先)
-        cat > app/build.gradle << 'EOF'
-        plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
-        android {
-            namespace 'proxyhand.android'
-            compileSdk 34
-            defaultConfig { applicationId "proxyhand.android"; minSdk 26; targetSdk 34; versionCode 1; versionName "1.0" }
-            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-            kotlinOptions { jvmTarget = '17' }
-        }
-        dependencies {
-            implementation 'androidx.core:core-ktx:1.10.1'
-            implementation 'androidx.appcompat:appcompat:1.6.1'
-            implementation 'com.google.android.material:material:1.9.0'
-            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-            implementation 'org.nanohttpd:nanohttpd:2.3.1'
-            implementation 'com.squareup.okhttp3:okhttp:4.11.0'
-        }
-        EOF
+        printf "plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }\nandroid {\n    namespace 'proxyhand.android'\n    compileSdk 34\n    defaultConfig { applicationId 'proxyhand.android'; minSdk 26; targetSdk 34; versionCode 1; versionName '1.0' }\n    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }\n    kotlinOptions { jvmTarget = '17' }\n}\ndependencies {\n    implementation 'androidx.core:core-ktx:1.10.1'\n    implementation 'androidx.appcompat:appcompat:1.6.1'\n    implementation 'com.google.android.material:material:1.9.0'\n    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'\n    implementation 'org.nanohttpd:nanohttpd:2.3.1'\n    implementation 'com.squareup.okhttp3:okhttp:4.11.0'\n}\n" > app/build.gradle
 
-        # 4. XML の物理配置
-        cat > app/src/main/res/layout/activity_main.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-            xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent">
-            <LinearLayout android:id="@+id/topBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="8dp" app:layout_constraintTop_toTopOf="parent">
-                <Button android:id="@+id/btnGemini" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="G" />
-                <Button android:id="@+id/btnChatGPT" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="C" />
-                <Button android:id="@+id/btnCopilot" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="M" />
-                <Button android:id="@+id/btnAll" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="A" />
-            </LinearLayout>
-            <android.webkit.WebView android:id="@+id/webView" android:layout_width="match_parent" android:layout_height="0dp" app:layout_constraintTop_toBottomOf="@id/topBar" app:layout_constraintBottom_toBottomOf="parent" />
-        </androidx.constraintlayout.widget.ConstraintLayout>
-        EOF
+        # ZIP からの展開と物理的コード修正
+        if [ -f "Proxyhand-Android.zip" ]; then
+          unzip -o Proxyhand-Android.zip -d raw_data
+          find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+          find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
+          find raw_data -name "activity_main.xml" -exec cp {} app/src/main/res/layout/ \;
+          find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
+        fi
 
-        # 5. ソースコードの物理的「大手術」（BindingをfindViewByIdに置換）
-        unzip -o Proxyhand-Android.zip -d raw_data || true
-        find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
-        find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
-
-        # MainActivity.kt の Binding 依存を物理的に排除
-        sed -i '/import proxyhand.android.databinding.ActivityMainBinding/d' app/src/main/java/proxyhand/android/MainActivity.kt
-        sed -i 's/private lateinit var binding: ActivityMainBinding/ /g' app/src/main/java/proxyhand/android/MainActivity.kt
-        sed -i 's/binding = ActivityMainBinding.inflate(layoutInflater)/setContentView(R.layout.activity_main)/g' app/src/main/java/proxyhand/android/MainActivity.kt
-        sed -i 's/setContentView(binding.root)/ /g' app/src/main/java/proxyhand/android/MainActivity.kt
-        sed -i 's/binding.\([a-zA-Z0-9]*\)/findViewById<android.view.View>(R.id.\1)/g' app/src/main/java/proxyhand/android/MainActivity.kt
+        # MainActivity.kt の Binding を物理排除 (findViewById への強制変換)
+        sed -i '/import proxyhand.android.databinding.ActivityMainBinding/d' app/src/main/java/proxyhand/android/MainActivity.kt || true
+        sed -i 's/private lateinit var binding: ActivityMainBinding/ /g' app/src/main/java/proxyhand/android/MainActivity.kt || true
+        sed -i 's/binding = ActivityMainBinding.inflate(layoutInflater)/setContentView(R.layout.activity_main)/g' app/src/main/java/proxyhand/android/MainActivity.kt || true
+        sed -i 's/setContentView(binding.root)/ /g' app/src/main/java/proxyhand/android/MainActivity.kt || true
+        sed -i 's/binding.\([a-zA-Z0-9]*\)/findViewById<android.view.View>(R.id.\1)/g' app/src/main/java/proxyhand/android/MainActivity.kt || true
 
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
