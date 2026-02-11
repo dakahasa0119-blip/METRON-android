@@ -55,18 +55,15 @@ jobs:
         sed -i 's/setContentView(binding.root)/ /g' app/src/main/java/proxyhand/android/MainActivity.kt || true
         sed -i 's/binding.\([a-zA-Z0-9]*\)/findViewById<android.view.View>(R.id.\1)/g' app/src/main/java/proxyhand/android/MainActivity.kt || true
 
-        # 🔥 Wrapper を正しい場所で生成
-        cd raw_data/Proxyhand-Android
+        # 🔥 Wrapper を “リポジトリ直下” で生成
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
 
     - name: Build APK
-      run: |
-        cd raw_data/Proxyhand-Android
-        ./gradlew assembleDebug --stacktrace --no-daemon
+      run: ./gradlew assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: Proxyhand-ARC-Final
-        path: "raw_data/Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk"
+        path: "app/build/outputs/apk/debug/app-debug.apk"
