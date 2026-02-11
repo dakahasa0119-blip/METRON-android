@@ -35,14 +35,12 @@ jobs:
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
 
-        # 設定ファイルの生成（インデント事故を防ぐため printf を使用）
         printf "include ':app'\n" > settings.gradle
 
         printf "buildscript {\n    repositories { google(); mavenCentral() }\n    dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0' }\n}\nallprojects { repositories { google(); mavenCentral() } }\n" > build.gradle
 
         printf "plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }\nandroid {\n    namespace 'proxyhand.android'\n    compileSdk 34\n    defaultConfig { applicationId 'proxyhand.android'; minSdk 26; targetSdk 34; versionCode 1; versionName '1.0' }\n    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }\n    kotlinOptions { jvmTarget = '17' }\n}\ndependencies {\n    implementation 'androidx.core:core-ktx:1.10.1'\n    implementation 'androidx.appcompat:appcompat:1.6.1'\n    implementation 'com.google.android.material:material:1.9.0'\n    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'\n    implementation 'org.nanohttpd:nanohttpd:2.3.1'\n    implementation 'com.squareup.okhttp3:okhttp:4.11.0'\n}\n" > app/build.gradle
 
-        # ZIP からの展開と物理的コード修正
         if [ -f "Proxyhand-Android.zip" ]; then
           unzip -o Proxyhand-Android.zip -d raw_data
           find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
@@ -51,21 +49,24 @@ jobs:
           find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
         fi
 
-        # MainActivity.kt の Binding を物理排除 (findViewById への強制変換)
         sed -i '/import proxyhand.android.databinding.ActivityMainBinding/d' app/src/main/java/proxyhand/android/MainActivity.kt || true
         sed -i 's/private lateinit var binding: ActivityMainBinding/ /g' app/src/main/java/proxyhand/android/MainActivity.kt || true
         sed -i 's/binding = ActivityMainBinding.inflate(layoutInflater)/setContentView(R.layout.activity_main)/g' app/src/main/java/proxyhand/android/MainActivity.kt || true
         sed -i 's/setContentView(binding.root)/ /g' app/src/main/java/proxyhand/android/MainActivity.kt || true
         sed -i 's/binding.\([a-zA-Z0-9]*\)/findViewById<android.view.View>(R.id.\1)/g' app/src/main/java/proxyhand/android/MainActivity.kt || true
 
+        # 🔥 Wrapper を正しい場所で生成
+        cd Proxyhand-Android
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
 
     - name: Build APK
-      run: ./gradlew assembleDebug --stacktrace --no-daemon
+      run: |
+        cd Proxyhand-Android
+        ./gradlew assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: Proxyhand-ARC-Final
-        path: "app/build/outputs/apk/debug/app-debug.apk"
+        path: "Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk"
