@@ -19,23 +19,26 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 🔥 キャッシュ機能を無効化（dependency-graphも無効化して障害を回避）
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.7
-        cache-disabled: true
+        cache-disabled: true # 物理障害回避のため継続
         dependency-graph: disabled
 
-    - name: Unzip project
-      run: unzip -o Proxyhand-Android.zip -d .
-
-    - name: Build APK
+    - name: Unzip and Flatten
       run: |
-        if [ -d "Proxyhand-Android" ]; then
-          cd Proxyhand-Android
+        unzip -o Proxyhand-Android.zip -d .
+        # 階層が二重になっている場合、中身をカレントに引き出す
+        if [ -d "Proxyhand-Android/Proxyhand-Android" ]; then
+          mv Proxyhand-Android/Proxyhand-Android/* .
+        elif [ -d "Proxyhand-Android" ]; then
+          mv Proxyhand-Android/* .
         fi
-        # --no-daemon でメモリ消費を抑え、より確実に
+
+    - name: Build APK (Force)
+      run: |
+        # 確実に settings.gradle がある場所で実行
         gradle assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
