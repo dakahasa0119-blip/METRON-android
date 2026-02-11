@@ -30,7 +30,7 @@ jobs:
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # プロジェクトルートを特定して移動
+        # プロジェクトルートへ移動
         GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
         cd "$GRADLE_ROOT"
         
@@ -47,5 +47,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        # 【修正】ワイルドカードを用いて生成されたAPKを強制捕捉
-        file: "**/app-debug.apk"
+        # 【究極の修正】サブディレクトリを問わず、生成された全APKの中から捕捉
+        file: "**/*.apk"
