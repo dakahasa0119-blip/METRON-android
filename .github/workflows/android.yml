@@ -1,0 +1,38 @@
+name: Build Proxyhand-Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Unzip project
+      run: unzip Proxyhand-Android.zip -d Proxyhand-Android
+
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x Proxyhand-Android/gradlew
+
+    - name: Build APK
+      run: |
+        cd Proxyhand-Android
+        ./gradlew assembleDebug
+
+    - name: Upload APK to GitHub Releases
+      uses: softprops/action-gh-release@v1
+      with:
+        files: Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
