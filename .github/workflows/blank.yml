@@ -30,14 +30,15 @@ jobs:
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # プロジェクトディレクトリの特定（Proxyhand-Android）
-        ROOT_DIR="Proxyhand-Android"
-        cd "$ROOT_DIR"
+        # プロジェクトルートを特定して移動
+        GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
+        cd "$GRADLE_ROOT"
         
-        # 秘密鍵（json）の物理配置
-        echo "$FIREBASE_JSON" > app/google-services.json
+        # appディレクトリを特定してjsonを配置
+        APP_DIR=$(find . -name "app" -type d | head -n 1)
+        echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
 
-        # システム直系の Gradle でビルド
+        # ビルド実行
         gradle assembleDebug --no-daemon
 
     - name: Upload to Firebase App Distribution
@@ -46,5 +47,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        # 【修正】確定した物理パスを直接指定
-        file: Proxyhand-Android/app/build/outputs/apk/debug/app-debug.apk
+        # 【修正】ワイルドカードを用いて生成されたAPKを強制捕捉
+        file: "**/app-debug.apk"
