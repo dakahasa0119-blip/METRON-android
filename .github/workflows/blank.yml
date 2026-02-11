@@ -17,37 +17,27 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Setup Gradle 8.7
+    # キャッシュを使わずにセットアップ（安定性重視）
+    - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.7
+        cache-disabled: true # キャッシュエラーを回避
 
-    - name: Unzip and Inject Firebase
+    - name: Inject Firebase Secret
       run: |
-        unzip -o Proxyhand-Android.zip -d .
-        # プロジェクトフォルダの特定
-        ROOT_DIR=$(find . -maxdepth 2 -name "app" -type d -exec dirname {} \;)
-        cd $ROOT_DIR
-        
-        # google-services.json の物理生成 (Secretsから)
+        # プロジェクト構造に合わせた google-services.json の生成
+        # ディレクトリが存在しない場合は作成
+        mkdir -p app/
         echo '${{ secrets.FIREBASE_SERVICES_JSON }}' > app/google-services.json
 
-        # Firebase SDK の注入 (build.gradle の書き換え)
-        sed -i "/dependencies {/a \        classpath 'com.google.gms:google-services:4.4.2'" build.gradle
-        sed -i "/plugins {/a \    id 'com.google.gms.google-services'" app/build.gradle
-        sed -i "/dependencies {/a \    implementation platform('com.google.firebase:firebase-bom:34.9.0')\n    implementation 'com.google.firebase:firebase-analytics-ktx'" app/build.gradle
-
     - name: Build with Gradle
-      run: |
-        ROOT_DIR=$(find . -maxdepth 2 -name "app" -type d -exec dirname {} \;)
-        cd $ROOT_DIR
-        gradle assembleDebug --no-daemon
+      run: ./gradlew assembleDebug --no-daemon
 
-    # 【重要】Firebase App Distribution への自動配信
     - name: Upload to Firebase App Distribution
       uses: wzieba/Firebase-Distribution-Github-Action@v1
       with:
-        appId: ${{ secrets.FIREBASE_APP_ID }} # Firebaseの設定から取得
-        token: ${{ secrets.FIREBASE_TOKEN }}   # firebase login:ci で取得
+        appId: ${{ secrets.FIREBASE_APP_ID }}
+        token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        file: "**/app/build/outputs/apk/debug/app-debug.apk"
+        file: app/build/outputs/apk/debug/app-debug.apk
