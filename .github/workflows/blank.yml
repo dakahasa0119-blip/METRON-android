@@ -26,20 +26,24 @@ jobs:
     - name: Unzip project
       run: unzip -o Proxyhand-Android.zip -d .
 
-    - name: Inject Firebase and Build
+    - name: Build APK
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # プロジェクトルートへ移動
+        # プロジェクトルート特定
         GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
         cd "$GRADLE_ROOT"
         
-        # appディレクトリを特定してjsonを配置
+        # Firebase設定の注入
         APP_DIR=$(find . -name "app" -type d | head -n 1)
         echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
 
         # ビルド実行
         gradle assembleDebug --no-daemon
+        
+        # 成果物(APK)を確実にルート直下の temp_artifacts にコピーしてパスを固定する
+        mkdir -p $GITHUB_WORKSPACE/temp_artifacts
+        find . -name "app-debug.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
 
     - name: Upload to Firebase App Distribution
       uses: wzieba/Firebase-Distribution-Github-Action@v1
@@ -47,5 +51,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        # 【究極の修正】サブディレクトリを問わず、生成された全APKの中から捕捉
-        file: "**/*.apk"
+        # 固定したパスから確実にアップロード
+        file: temp_artifacts/app-debug.apk
