@@ -28,25 +28,15 @@ jobs:
         gradle-version: 8.7
         cache-disabled: true
 
-    - name: Force Reconstruct Project
+    - name: Reconstruct Project (Core Override)
       run: |
-        # ディレクトリの物理的再構築
         mkdir -p app/src/main/java/proxyhand/android
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
-        
-        unzip -o Proxyhand-Android.zip -d raw_data
-        
-        # ソースコードを正しいパッケージ構造へ配置
-        find raw_data -name "*.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
-        find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
-        find raw_data -name "activity_main.xml" -exec cp {} app/src/main/res/layout/ \;
-        find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
 
-        # 🔥 settings.gradle の固定
+        # 1. ビルド設定の完全同期
         echo "include ':app'" > settings.gradle
         
-        # 🔥 プロジェクトルートのビルドスクリプト固定
         cat <<EOF > build.gradle
         buildscript {
             repositories { google(); mavenCentral() }
@@ -58,12 +48,8 @@ jobs:
         allprojects { repositories { google(); mavenCentral() } }
         EOF
 
-        # 🔥 app/build.gradle の依存関係をより強固に修正
         cat <<EOF > app/build.gradle
-        plugins { 
-            id 'com.android.application'
-            id 'org.jetbrains.kotlin.android'
-        }
+        plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
         android {
             namespace 'proxyhand.android'
             compileSdk 34
@@ -75,10 +61,7 @@ jobs:
                 versionName "1.0"
             }
             buildFeatures { viewBinding true }
-            compileOptions { 
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
-            }
+            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
             kotlinOptions { jvmTarget = '17' }
         }
         dependencies {
@@ -91,6 +74,21 @@ jobs:
         }
         EOF
 
+        # 2. ソースコードの物理配置（ZIPからの抽出 & 不足分の補完）
+        unzip -o Proxyhand-Android.zip -d raw_data || true
+        
+        # 確実に配置するためにパスを固定
+        find raw_data -name "MainActivity.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        find raw_data -name "MetronService.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        find raw_data -name "LocalHttpServer.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        find raw_data -name "JsManager.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        find raw_data -name "JsBridge.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        find raw_data -name "DoPostClient.kt" -exec cp {} app/src/main/java/proxyhand/android/ \;
+        
+        find raw_data -name "AndroidManifest.xml" -exec cp {} app/src/main/ \;
+        find raw_data -name "activity_main.xml" -exec cp {} app/src/main/res/layout/ \;
+        find raw_data -name "strings.xml" -exec cp {} app/src/main/res/values/ \;
+
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
 
@@ -100,5 +98,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: app-debug
+        name: Proxyhand-ARC-Debug
         path: "app/build/outputs/apk/debug/app-debug.apk"
