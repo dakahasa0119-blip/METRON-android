@@ -24,8 +24,8 @@ jobs:
         cache-disabled: true
 
     - name: Unzip project
-      # 艦長が入れ替えた最新のZIP名に物理整合
-      run: unzip -o メトロン_SYNC_20260213.zip -d .
+      # 日本語ファイル名による「cannot find or open」をワイルドカードで物理回避
+      run: unzip -o *.zip -d .
 
     - name: Build and Configure
       env:
@@ -39,11 +39,11 @@ jobs:
         APP_DIR=$(find . -name "app" -type d | head -n 1)
         echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
 
-        # 艦長の指示通り「構築」するためにReleaseビルドを実行（Mappingファイルを生成）
+        # 艦長の指示通り「構築（解析基盤の確立）」のためにReleaseビルドを実行
         chmod +x gradlew
         ./gradlew assembleRelease --no-daemon
         
-        # 成果物(APK)を固定パスへコピー
+        # 成果物(APK)を固定パスへコピー（Crashlytics用のMapping生成もこの工程で完遂）
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
         find . -name "app-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
 
@@ -53,5 +53,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        # 構築されたAPKを物理アップロード
+        # 物理的に構築されたAPKをアップロード
         file: temp_artifacts/app-release-unsigned.apk
