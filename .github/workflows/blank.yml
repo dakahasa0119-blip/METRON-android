@@ -1,4 +1,4 @@
-name: Build and Deploy to Firebase (Construction Mode)
+name: Build and Deploy to Firebase (Self-Repair Mode)
 
 on:
   push:
@@ -24,38 +24,27 @@ jobs:
         cache-disabled: true
 
     - name: Unzip project
-      # 何があろうとZIPを解凍し、中身をログに出して物理確認する
-      run: |
-        unzip -o *.zip -d extracted_project
-        echo "--- Physical File Structure ---"
-        find extracted_project -maxdepth 3
+      # 艦長の最新ZIPを解凍
+      run: unzip -o *.zip -d .
 
-    - name: Build and Configure
+    - name: Build and Force Construction
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # 1. gradlewを全ディレクトリから物理捜索
-        GRADLE_PATH=$(find . -name "gradlew" -type f | head -n 1)
-        if [ -z "$GRADLE_PATH" ]; then 
-          echo "Error: gradlew is missing from the ZIP."
-          exit 1
-        fi
+        # 1. 物理的欠損の補完（gradlewがないなら、その場で作る）
+        gradle wrapper
+        chmod +x gradlew
         
-        # 2. その場所を「工場の拠点」にする
-        PROJECT_ROOT=$(dirname "$GRADLE_PATH")
-        cd "$PROJECT_ROOT"
-        chmod +x ./gradlew
-        
-        # 3. Firebase設定の注入（appフォルダを特定）
+        # 2. Firebase設定の注入
         APP_DIR=$(find . -name "app" -type d | head -n 1)
         if [ -n "$APP_DIR" ]; then
           echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
         fi
 
-        # 4. 構築実行（Releaseビルドで解析の魂を生成）
+        # 3. 構築実行（Releaseビルドで解析用の魂 Mapping を生成）
         ./gradlew assembleRelease --no-daemon
         
-        # 5. 成果物を固定パスへ救出
+        # 4. 成果物を固定パスへ救出
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
         find . -name "app-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
 
