@@ -1,4 +1,4 @@
-name: Pure Build to APK (Variable Consistency Fix)
+name: ARC Build to APK
 
 on:
   push:
@@ -16,11 +16,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Surgical Extraction & Atomic Safety Buffer
+      - name: Surgical Extraction & Build Setup
         run: |
-          unzip -o *.zip -d raw_extract
+          # 1. 抽出とディレクトリ作成
+          unzip -o *.zip -d raw_extract || true
+          
+          # MainActivityからパッケージ名を取得（なければデフォルト）
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
-          PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' "$MAIN_FILE")
+          if [ -z "$MAIN_FILE" ]; then
+            PACKAGE_NAME="com.arc"
+          else
+            PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//')
+          fi
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
           rm -rf app
@@ -28,56 +35,30 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
+          # 2. ソースコードの配置（物理的整合性の維持）
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
-            sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
-            # 既存の「Prefs」クラスとの衝突を避けるため、コード内の曖昧な参照を物理的に補正
-            sed -i 's/Prefs\./instance\./g' "$dest"
+            # パッケージ名の強制統一
+            sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
           done
 
-          # 【物理的解決】読み書き可能な var に変更し、不足変数を網羅
-          cat <<EOF > "app/src/main/java/$PACKAGE_PATH/SafetyBuffer.kt"
-          package $PACKAGE_NAME
-          import org.json.JSONObject
-
-          // 読み書き可能なグローバル拡張プロパティ
-          var Any?.prefs: Any? get() = null; set(value) {}
-          var Any?.copilotResp: String get() = ""; set(value) {}
-          var Any?.instance: Any? get() = null; set(value) {}
-          var Any?.currentProfile: String get() = ""; set(value) {}
-          var Any?.allAiMode: Boolean get() = false; set(value) {}
-          var Any?.summaryPrompt: String get() = ""; set(value) {}
-          var Any?.hallucinationTolerance: Int get() = 0; set(value) {}
-          var Any?.allAiDelayMs: Long get() = 0; set(value) {}
-          var Any?.profileSlot1: String get() = ""; set(value) {}
-          var Any?.profileSlot2: String get() = ""; set(value) {}
-          var Any?.profileSlot3: String get() = ""; set(value) {}
-          var Any?.selectedSlotIndex: Int get() = 0; set(value) {}
-          var Any?.text: String get() = ""; set(value) {}
-
-          // DataBinding 補完
-          class ActivitySettingsBinding {
-              companion object { 
-                  @JvmStatic fun inflate(i: Any?): ActivitySettingsBinding = ActivitySettingsBinding() 
-                  @JvmStatic fun bind(v: Any?): ActivitySettingsBinding = ActivitySettingsBinding()
-              }
-              val root: android.view.View? = null
-              var btnSave: Any? = null
-          }
-          EOF
-
-          find raw_extract -path "*/res/layout/*.xml" -not -name "AndroidManifest.xml" | while read x; do
-            base=$(basename "$x" | tr '[:upper:]' '[:lower:]')
-            cp "$x" "app/src/main/res/layout/$base"
+          # 3. リソースファイルの配置
+          find raw_extract -path "*/res/layout/*.xml" | while read x; do
+            cp "$x" "app/src/main/res/layout/"
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
+          # 4. マニフェストの生成（マルチプロセス指定を維持）
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
-              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+              <application 
+                  android:label="ARC" 
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+                  android:usesCleartextTraffic="true"
+                  android:process=":webview_process">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -91,7 +72,7 @@ jobs:
 
       - name: Build System Finalizer
         run: |
-          PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' $(find app/src/main/java -name "MainActivity.kt"))
+          PACKAGE_NAME=$(grep -m 1 '^package' $(find app/src/main/java -name "MainActivity.kt") | awk '{print $2}' | sed 's/;//')
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
@@ -99,7 +80,10 @@ jobs:
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.1.1'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -111,28 +95,39 @@ jobs:
               namespace '$PACKAGE_NAME'
               compileSdk 34
               buildFeatures { viewBinding true }
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 33; versionCode 1; versionName "1.0-VAL-VAR-FIX" }
+              defaultConfig { 
+                  applicationId "$PACKAGE_NAME"
+                  minSdk 24 
+                  targetSdk 34 
+                  versionCode 1 
+                  versionName "1.0-ARC-CORE" 
+              }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
-              buildTypes { release { signingConfig signingConfigs.debug } }
+              buildTypes { 
+                  release { 
+                      minifyEnabled false
+                      signingConfig signingConfigs.debug 
+                  } 
+              }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.9.0'
-              implementation 'androidx.core:core-ktx:1.10.1'
-              implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
               implementation 'org.nanohttpd:nanohttpd:2.3.1'
           }
           EOF
 
-      - name: Build with Target Gradle
+      - name: Build with Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.2
+          gradle-version: 8.5
           arguments: assembleRelease --no-daemon
 
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-final-fixed-apk
+          name: arc-final-build-apk
           path: app/build/outputs/apk/release/*.apk
