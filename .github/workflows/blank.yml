@@ -1,102 +1,37 @@
-name: ARC_ULTIMATE_STABLE_BUILD
-
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Surgical Extraction & Physical Reconstruction
+- name: Final Compilation
         run: |
-          unzip -o *.zip -d raw_extract || true
-          MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
-          if [ -z "$MAIN_FILE" ]; then PACKAGE_NAME="com.arc"; else PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//'); fi
-          PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
-          rm -rf app
-          mkdir -p "app/src/main/java/$PACKAGE_PATH"
-          mkdir -p app/src/main/res/layout
-          mkdir -p app/src/main/res/values
-
-          # 1. 全ファイルを配置
-          find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
-            dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
-            cp "$f" "$dest"
-            sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
-          done
-
-          # 2. Prefs.kt の物理的再構築（Unresolved referenceを根絶）
-          PREFS_FILE="app/src/main/java/$PACKAGE_PATH/Prefs.kt"
-          if [ -f "$PREFS_FILE" ]; then
-            # 'prefs.' という呼び出しを 'this.prefs.' に、またはエラー箇所をスタブへ強制置換
-            sed -i 's/prefs\./(null as android.content.SharedPreferences?)\./g' "$PREFS_FILE"
-            # 宣言されていない prefs への代入などを物理消去
-            sed -i '/prefs =/d' "$PREFS_FILE"
-          fi
-
-          # 3. SettingsActivity.kt の物理的再構築
-          SETTINGS_FILE="app/src/main/java/$PACKAGE_PATH/SettingsActivity.kt"
-          if [ -f "$SETTINGS_FILE" ]; then
-            # copilotResp 等の欠落プロパティをクラス内に強制埋め込み（既存の class 定義行を狙う）
-            sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0\n    private var profileSlot1: String = ""\n    private var profileSlot2: String = ""\n    private var profileSlot3: String = ""' "$SETTINGS_FILE"
-          fi
-
-          # 4. JSONObject の型アンビギュイティ回避（一括）
-          find app/src/main/java -name "*.kt" | xargs sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g'
-
-          # 5. リソースとマニフェスト
-          find raw_extract -path "*/res/layout/*.xml" | while read x; do
-            if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then cp "$x" "app/src/main/res/layout/"; fi
-          done
-          find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
-          cat <<EOF > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET" />
-              <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:usesCleartextTraffic="true">
-                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
-                  <activity android:name=".SettingsActivity" android:exported="false" />
-              </application>
-          </manifest>
-          EOF
-
-      - name: Build with Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 8.5
-          # arguments は非推奨になったため、直接実行コマンドを run で指定
-      
-      - name: Final Compilation
-        run: |
-          # settings.gradle 等の生成
+          # 1. ビルド構成ファイルの生成
           MAIN_FILE=$(find app/src/main/java -name "MainActivity.kt" | head -n 1)
           PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//')
+          
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
+          
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
+          
           cat <<EOF > app/build.gradle
           apply plugin: 'com.android.application'
           apply plugin: 'org.jetbrains.kotlin.android'
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId "$PACKAGE_NAME"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig { 
+                  applicationId "$PACKAGE_NAME"
+                  minSdk 24 
+                  targetSdk 34 
+                  versionCode 1 
+                  versionName "1.0-ULTIMATE" 
+              }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
@@ -109,4 +44,6 @@ jobs:
               implementation 'org.nanohttpd:nanohttpd:2.3.1'
           }
           EOF
-          ./gradlew assembleRelease --no-daemon
+
+          # 2. システムのgradleコマンドを直接叩く（物理的なgradlewの欠如を無視）
+          gradle assembleRelease --no-daemon
