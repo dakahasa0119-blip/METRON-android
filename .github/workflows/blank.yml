@@ -25,25 +25,33 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Total Integration
+      - name: Build and Structural Alignment
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
-          # 1. 物理特定
-          ROOT_FILE=$(find $(pwd) -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
-          PROJECT_ROOT=$(dirname "$ROOT_FILE")
-          APP_GRADLE=$(find "$PROJECT_ROOT" -name "build.gradle" | grep "/app/" | head -n 1)
-          APP_DIR=$(dirname "$APP_GRADLE")
+          # 1. 物理特定（深層フォルダから情報を吸い出す）
+          MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
+          PROJECT_DIR_ORIGIN=$(echo "$MANIFEST_ORIGIN" | sed 's|/src/main/AndroidManifest.xml||')
+          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN" || echo "com.arc")
+          PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 2. パッケージ名の厳密抽出
-          MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
-          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc")
+          # 2. 新しい、完璧なプロジェクト構造をルートに強制作成
+          rm -rf app
+          mkdir -p app/src/main/java/$PACKAGE_PATH
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
 
-          # 3. 物理的浄化（誤配置ファイルの削除）
-          find . -path "*/src/main/res/layout/AndroidManifest.xml" -delete
+          # 3. ソースファイルを正規の場所へ強制移動
+          find "$PROJECT_DIR_ORIGIN" -name "*.kt" -exec cp {} app/src/main/java/$PACKAGE_PATH/ \;
+          find "$PROJECT_DIR_ORIGIN" -name "*.java" -exec cp {} app/src/main/java/$PACKAGE_PATH/ \;
+          find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" -exec cp {} app/src/main/res/layout/ \;
+          cp "$MANIFEST_ORIGIN" app/src/main/AndroidManifest.xml
 
-          # 4. Kotlin/Firebase対応の設計図再構築
-          cat <<EOF > "$PROJECT_ROOT/settings.gradle"
+          # 4. Prefs.kt のパッケージ名を物理同期
+          find app/src/main/java -name "Prefs.kt" -exec sed -i "1s/.*/package $PACKAGE_NAME/" {} +
+
+          # 5. 設計図（build.gradle）の生成
+          cat <<EOF > settings.gradle
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
@@ -53,31 +61,20 @@ jobs:
           include ':app'
           EOF
 
-          cat <<EOF > "$PROJECT_ROOT/build.gradle"
+          cat <<EOF > build.gradle
           plugins {
               id 'com.android.application' version '8.2.2' apply false
-              id 'com.google.gms.google-services' version '4.4.0' apply false
               id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+              id 'com.google.gms.google-services' version '4.4.0' apply false
           }
           EOF
 
-          cat <<EOF > "$APP_GRADLE"
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-              id 'com.google.gms.google-services'
-          }
+          cat <<EOF > app/build.gradle
+          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android'; id 'com.google.gms.google-services' }
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig {
-                  applicationId '$PACKAGE_NAME'
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-              buildTypes { release { minifyEnabled false } }
+              defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -88,23 +85,15 @@ jobs:
           }
           EOF
 
-          # 5. Prefs.kt のパッケージ名を物理強制同期
-          PREFS_PATH=$(find "$PROJECT_ROOT" -name "Prefs.kt")
-          if [ -n "$PREFS_PATH" ]; then
-            sed -i "1s/.*/package $PACKAGE_NAME/" "$PREFS_PATH"
-            echo "Synchronized Prefs.kt package to $PACKAGE_NAME"
-          fi
-
-          # 6. Firebase設定と環境構築
-          echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
-          cd "$PROJECT_ROOT"
+          # 6. Firebase設定と実行
+          echo "$FIREBASE_JSON" > "app/google-services.json"
           gradle wrapper
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-          
-          # 7. 成果物救出
+
+          # 7. 救出
           mkdir -p $GITHUB_WORKSPACE/temp_artifacts
-          find "$PROJECT_ROOT" -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
+          find . -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
       - name: Upload
         uses: wzieba/Firebase-Distribution-Github-Action@v1
