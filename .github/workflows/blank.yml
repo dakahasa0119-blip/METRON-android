@@ -1,4 +1,4 @@
-name: Build and Deploy to Firebase (Self-Repair Mode)
+name: Build and Deploy to Firebase (Absolute Construction)
 
 on:
   push:
@@ -24,29 +24,41 @@ jobs:
         cache-disabled: true
 
     - name: Unzip project
-      # 艦長の最新ZIPを解凍
       run: unzip -o *.zip -d .
 
     - name: Build and Force Construction
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # 1. 物理的欠損の補完（gradlewがないなら、その場で作る）
+        # 1. プロジェクトの「真の根源」を物理捜索
+        # build.gradle または settings.gradle がある場所を特定する
+        ROOT_FILE=$(find . -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
+        if [ -z "$ROOT_FILE" ]; then
+          echo "Error: No Gradle project found in ZIP."
+          find . -maxdepth 3
+          exit 1
+        fi
+        
+        PROJECT_ROOT=$(dirname "$ROOT_FILE")
+        echo "Project root found at: $PROJECT_ROOT"
+        cd "$PROJECT_ROOT"
+        
+        # 2. 物理的欠損の補完（その場でエンジンを生成）
         gradle wrapper
         chmod +x gradlew
         
-        # 2. Firebase設定の注入
+        # 3. Firebase設定の注入（appフォルダを特定）
         APP_DIR=$(find . -name "app" -type d | head -n 1)
         if [ -n "$APP_DIR" ]; then
           echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
         fi
 
-        # 3. 構築実行（Releaseビルドで解析用の魂 Mapping を生成）
+        # 4. 構築実行（Releaseビルド）
         ./gradlew assembleRelease --no-daemon
         
-        # 4. 成果物を固定パスへ救出
+        # 5. 成果物を固定パスへ救出（上位階層へ退避）
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
-        find . -name "app-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
+        find . -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
     - name: Upload to Firebase App Distribution
       uses: wzieba/Firebase-Distribution-Github-Action@v1
