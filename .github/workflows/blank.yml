@@ -1,4 +1,4 @@
-name: Pure Build to APK
+name: Pure Build to APK (Signed)
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build Pure APK with Manifest Fix
+      - name: Build and Auto-Sign APK
         run: |
           # 1. 物理特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
@@ -49,26 +49,20 @@ jobs:
             sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
           done
 
-          # 4. リソースの厳密コピー
+          # 4. リソースコピー
           find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" | while read xml; do
             if [[ "$(basename "$xml")" != "AndroidManifest.xml" ]]; then
               cp "$xml" app/src/main/res/layout/
             fi
           done
 
-          # 5. 【修正】標準的な AndroidManifest.xml の生成
+          # 5. Manifest生成
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
-          
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="$PACKAGE_NAME">
-              <application
-                  android:label="METRON"
-                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity
-                      android:name=".$REAL_ACTIVITY"
-                      android:exported="true">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
+              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity android:name=".$REAL_ACTIVITY" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -78,13 +72,11 @@ jobs:
           </manifest>
           EOF
 
-          # 6. 設定ファイル
-          cat <<EOF > gradle.properties
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-
+          # 6. Gradle設定（署名有効化）
+          echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
           echo "include ':app'" > settings.gradle
+          
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -108,6 +100,13 @@ jobs:
                   targetSdk 34
                   versionCode 1
                   versionName "1.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      // リリースビルドにデバッグ署名を強制適用
+                      signingConfig signingConfigs.debug
+                  }
               }
           }
           dependencies {
