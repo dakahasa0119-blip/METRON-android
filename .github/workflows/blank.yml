@@ -1,4 +1,4 @@
-name: Pure Build to APK (Wrapper Force Fix)
+name: Pure Build to APK (Total Gradle Isolation)
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+                          <category android:name="android.intent.category.LAUNCHer" />
                       </intent-filter>
                   </activity>
                   <activity android:name=".SettingsActivity" android:exported="false" />
@@ -63,7 +63,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build System Setup
+      - name: Build System Hard-Coding (No System Gradle)
         run: |
           PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' $(find app/src/main/java -name "MainActivity.kt"))
           echo "include ':app'" > settings.gradle
@@ -102,15 +102,14 @@ jobs:
           }
           EOF
 
-          # 【物理的修正】システム版gradleを殺し、Wrapperを生成・指定
-          /usr/bin/gradle wrapper --gradle-version 8.2
-          chmod +x gradlew
-
-      - name: Build with Wrapper (Force 8.2)
-        run: ./gradlew assembleRelease --no-daemon
+      - name: Force Build with Target Gradle (Bypassing 9.3.1)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.2
+          arguments: assembleRelease --no-daemon
 
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-wrapper-fix-apk
+          name: metron-isolated-apk
           path: app/build/outputs/apk/release/*.apk
