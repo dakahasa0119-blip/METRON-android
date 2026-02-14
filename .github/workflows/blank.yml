@@ -19,7 +19,6 @@ jobs:
       - name: Unzip and Pre-Configure
         run: |
           unzip -o *.zip -d .
-          # 先に設定ファイルの雛形を作り、Gradleが「ここがプロジェクトだ」と認識できるようにする
           echo "include ':app'" > settings.gradle
           touch build.gradle
 
@@ -40,7 +39,7 @@ jobs:
           REAL_ACTIVITY_FILE=$(find . -maxdepth 10 -name "*.kt" -o -name "*.java" | xargs grep -lE "class .* : .*Activity|class .* extends .*Activity" | head -n 1)
           REAL_ACTIVITY_NAME=$(grep -oP "class \K\w+" "$REAL_ACTIVITY_FILE" | head -n 1 || echo "MainActivity")
 
-          # 4. 【核心】エラーキャッチ回路の物理挿入
+          # 4. 【核心】エラーキャッチ回路（Java 17 準拠）
           cat <<EOF > "app/src/main/java/$PACKAGE_PATH/$REAL_ACTIVITY_NAME.kt"
           package $PACKAGE_NAME
           import android.os.Bundle
@@ -72,7 +71,7 @@ jobs:
                   try {
                       logView.text = "--- METRON DEBUG SYSTEM ACTIVE ---\n"
                       logView.append("Package: $PACKAGE_NAME\n")
-                      logView.append("Activity: $REAL_ACTIVITY_NAME\n")
+                      logView.append("JVM Target: 17\n")
                       logView.append("Status: Awaiting System Logic...\n\n")
                   } catch (e: Exception) {
                       logView.append(e.stackTraceToString())
@@ -81,7 +80,22 @@ jobs:
           }
           EOF
 
-          # 5. ビルド定義の完全上書き
+          # 5. Manifest（警告回避のためpackage属性を削除しnamespaceへ集約）
+          cat <<EOF > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="METRON_DEBUG" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity android:name=".$REAL_ACTIVITY_NAME" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          
+          # 6. ビルド定義（JVM 17 を強制指定）
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -100,6 +114,14 @@ jobs:
               namespace '$PACKAGE_NAME'
               compileSdk 34
               defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG" }
+              
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
@@ -107,27 +129,12 @@ jobs:
               implementation 'androidx.core:core-ktx:1.12.0'
           }
           EOF
-
-          cat <<EOF > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
-              <application android:label="METRON_DEBUG" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".$REAL_ACTIVITY_NAME" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
           
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
       - name: Build with Gradle
         run: |
-          # ここで初めてGradleを召喚。設定ファイルが既にあるので動作する。
           gradle wrapper --gradle-version 8.7
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
