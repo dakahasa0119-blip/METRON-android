@@ -25,29 +25,46 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Overwrite Construction
+      - name: Build and Total Overwrite
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
-          # 1. 物理的浄化
-          find . -path "*/src/main/res/layout/AndroidManifest.xml" -delete
-
-          # 2. 物理特定（絶対パス）
-          APP_GRADLE=$(find $(pwd) -name "build.gradle" | grep "/app/" | head -n 1)
-          APP_DIR=$(dirname "$APP_GRADLE")
+          # 1. 物理的特定
           ROOT_FILE=$(find $(pwd) -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
           PROJECT_ROOT=$(dirname "$ROOT_FILE")
+          APP_GRADLE=$(find "$PROJECT_ROOT" -name "build.gradle" | grep "/app/" | head -n 1)
+          APP_DIR=$(dirname "$APP_GRADLE")
+          
+          # 2. 工場の発注システム（settings.gradle）を上書き
+          # これにより Google() リポジトリを強制認識させます
+          cat <<EOF > "$PROJECT_ROOT/settings.gradle"
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "METRON-android"
+          include ':app'
+          EOF
 
           # 3. 魂の抽出
           MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
 
-          # 4. 設計図の再構築（既存を捨て、クリーンな設定を上書き）
-          # 以前の「入れ子」問題を物理的に解消するため、ヒアドキュメントで一気に作成
+          # 4. 設計図（app/build.gradle）を上書き（プラグインにバージョンを明記）
           cat <<EOF > "$APP_GRADLE"
           plugins {
-              id 'com.android.application'
-              id 'com.google.gms.google-services'
+              id 'com.android.application' version '8.2.2'
+              id 'com.google.gms.google-services' version '4.4.0'
           }
 
           android {
@@ -60,30 +77,24 @@ jobs:
                   versionCode 1
                   versionName "1.0"
               }
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
-              }
           }
 
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.9.0'
-              implementation 'com.google.firebase:firebase-analytics:21.5.0'
+              implementation platform('com.google.firebase:firebase-bom:32.7.0')
+              implementation 'com.google.firebase:firebase-analytics'
           }
           EOF
 
-          # 5. Firebase設定の物理注入
+          # 5. Firebase設定と環境構築
           echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
-
-          # 6. 実行
           cd "$PROJECT_ROOT"
           gradle wrapper
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-          
-          # 7. 救出
+
+          # 6. 救出
           mkdir -p $GITHUB_WORKSPACE/temp_artifacts
           find "$PROJECT_ROOT" -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
