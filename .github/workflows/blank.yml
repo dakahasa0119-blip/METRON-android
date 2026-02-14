@@ -1,31 +1,6 @@
-name: Build and Deploy to Firebase
+# ... (前略: steps の Unzip まで)
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.7
-          cache-disabled: true
-
-      - name: Unzip
-        run: unzip -o *.zip -d .
-
-      - name: Build and Total Overwrite V3
+      - name: Build and Total Integration
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
@@ -34,47 +9,36 @@ jobs:
           PROJECT_ROOT=$(dirname "$ROOT_FILE")
           APP_GRADLE=$(find "$PROJECT_ROOT" -name "build.gradle" | grep "/app/" | head -n 1)
           APP_DIR=$(dirname "$APP_GRADLE")
-          ROOT_GRADLE="$PROJECT_ROOT/build.gradle"
 
-          # 2. 地図（Repositories）の完全一元化
+          # 2. パッケージ名の厳密抽出
+          MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
+          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc")
+
+          # 3. Kotlin対応を含めた設計図の再構築
           cat <<EOF > "$PROJECT_ROOT/settings.gradle"
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+              repositories { google(); mavenCentral() }
           }
           rootProject.name = "METRON-android"
           include ':app'
           EOF
 
-          # 3. ルートのbuild.gradle（プラグインの宣言のみに特化）
-          cat <<EOF > "$ROOT_GRADLE"
+          cat <<EOF > "$PROJECT_ROOT/build.gradle"
           plugins {
               id 'com.android.application' version '8.2.2' apply false
               id 'com.google.gms.google-services' version '4.4.0' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
           }
           EOF
 
-          # 4. 魂の抽出
-          MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
-          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
-
-          # 5. 設計図（app/build.gradle）
           cat <<EOF > "$APP_GRADLE"
           plugins {
               id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
               id 'com.google.gms.google-services'
           }
-
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
@@ -86,30 +50,32 @@ jobs:
                   versionName "1.0"
               }
           }
-
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.9.0'
+              implementation 'androidx.core:core-ktx:1.12.0'
               implementation platform('com.google.firebase:firebase-bom:32.7.0')
               implementation 'com.google.firebase:firebase-analytics'
           }
           EOF
 
-          # 6. Firebase設定と実行
+          # 4. Prefs.kt のパッケージ名を Manifest に物理強制同期
+          # これにより、艦長の Prefs.kt はエラーなく読み込まれます
+          PREFS_PATH=$(find "$PROJECT_ROOT" -name "Prefs.kt")
+          if [ -n "$PREFS_PATH" ]; then
+            sed -i "1s/.*/package $PACKAGE_NAME/" "$PREFS_PATH"
+            echo "Synchronized Prefs.kt package to $PACKAGE_NAME"
+          fi
+
+          # 5. Firebase設定と実行
           echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
           cd "$PROJECT_ROOT"
           gradle wrapper
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-
-          # 7. 救出
+          
+          # 6. 救出
           mkdir -p $GITHUB_WORKSPACE/temp_artifacts
           find "$PROJECT_ROOT" -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
-      - name: Upload
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
-        with:
-          appId: ${{ secrets.FIREBASE_APP_ID }}
-          token: ${{ secrets.FIREBASE_TOKEN }}
-          groups: testers
-          file: temp_artifacts/app-release-unsigned.apk
+# ... (後略: Upload step)
