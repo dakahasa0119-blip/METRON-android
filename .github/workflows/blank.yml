@@ -25,7 +25,7 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build Pure APK
+      - name: Build Pure APK with Resource Sanitization
         run: |
           # 1. 物理特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
@@ -39,29 +39,33 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソースの物理移動（Firebase関連コードの無効化）
+          # 3. ソースの物理移動と洗浄
           find "$PROJECT_DIR_ORIGIN" -name "*.kt" -o -name "*.java" | while read file; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
             cp "$file" "$dest"
-            # Firebaseへの依存コードがあればコメントアウトまたは洗浄
             sed -i "/import com.google.firebase/d" "$dest"
             sed -i "/FirebaseApp.initializeApp/d" "$dest"
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
             sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
           done
-          find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" -exec cp {} app/src/main/res/layout/ \;
 
-          # 4. 近代化設定
+          # 4. リソースの厳密コピー（XMLファイルのみ、かつAndroidManifestを除外）
+          find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" | while read xml; do
+            if [[ "$(basename "$xml")" != "AndroidManifest.xml" ]]; then
+              cp "$xml" app/src/main/res/layout/
+            fi
+          done
+
+          # 5. 設定ファイルの生成
           cat <<EOF > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
           EOF
 
-          # 5. 設計図生成（Firebaseプラグインを完全に除去）
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.microsoft.com/apk/res/android">
               <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                   <activity android:name=".$REAL_ACTIVITY" android:exported="true">
                       <intent-filter>
