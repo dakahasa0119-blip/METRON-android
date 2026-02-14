@@ -1,4 +1,4 @@
-name: METRON_STABLE_REBORN
+name: METRON_STABLE_REBORN_FINAL
 
 on:
   push:
@@ -13,29 +13,36 @@ jobs:
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
 
-      - name: Reconstruct for Absolute Identity
+      - name: Reconstruct Absolute Environment
         run: |
-          # 1. 物理配置の再構築（新住所：com.arc.metron）
+          # 1. 物理構造の全構築
           mkdir -p app/src/main/java/com/arc/metron
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 2. 全ソースの展開と内部パスの物理置換
+          # 2. ソース展開と「完全」置換
           unzip -o *.zip -d raw_extract || true
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/metron/ \;
           
-          # 内部のpackageとimportを新住所へ一括置換（起動停止の主要因を排除）
+          # java/kotlinファイルの住所と参照を根こそぎ変える
           find app/src/main/java/com/arc/metron -type f -exec sed -i "s/package com.arc/package com.arc.metron/g" {} +
           find app/src/main/java/com/arc/metron -type f -exec sed -i "s/import com.arc\./import com.arc.metron./g" {} +
+          find app/src/main/java/com/arc/metron -type f -exec sed -i "s/R\.layout\./com.arc.metron.R.layout./g" {} +
 
-          # 3. AndroidManifest.xml（特定済みのテーマ欠損を修正）
+          # 3. 欠落している「テーマ」を物理生成
+          cat <<EOF > app/src/main/res/values/themes.xml
+          <resources>
+              <style name="Theme.Metron" parent="Theme.AppCompat.Light.NoActionBar" />
+          </resources>
+          EOF
+
+          # 4. AndroidManifest.xml (生成したテーマを明示)
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application 
                   android:label="METRON_STABLE" 
-                  android:icon="@android:mipmap/sym_def_app_icon"
-                  android:theme="@style/Theme.AppCompat.NoActionBar">
+                  android:theme="@style/Theme.Metron">
                   <activity android:name="com.arc.metron.MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -46,7 +53,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build New Package with Fixes
+      - name: Build with Strong Dependencies
         run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
@@ -54,10 +61,7 @@ jobs:
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { 
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
-              }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -67,13 +71,7 @@ jobs:
           android { 
               namespace 'com.arc.metron'
               compileSdk 34
-              defaultConfig { 
-                  applicationId "com.arc.metron" 
-                  minSdk 24 
-                  targetSdk 34 
-                  versionCode 1
-                  versionName "1.0-REBORN" 
-              }
+              defaultConfig { applicationId "com.arc.metron"; minSdk 24; targetSdk 34; versionCode 3; versionName "3.0" }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -86,8 +84,8 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Artifact Delivery
+      - name: Delivery
         uses: actions/upload-artifact@v4
         with:
-          name: metron-stable-reborn
+          name: metron-final-v3
           path: app/build/outputs/apk/debug/*.apk
