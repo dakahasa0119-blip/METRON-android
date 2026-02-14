@@ -1,4 +1,4 @@
-name: Pure Build to APK (JVM Target Sync)
+name: Pure Build to APK (Fix Syntax & Target Sync)
 
 on:
   push:
@@ -18,21 +18,16 @@ jobs:
 
       - name: Surgical Extraction & Resource Filtering
         run: |
-          # 1. 物理構造の完全初期化
           unzip -o *.zip -d raw_extract
-          
-          # 2. パッケージ特定
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' "$MAIN_FILE")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 3. 構造再定義
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 4. ソースファイルの物理強制移動
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
@@ -42,14 +37,12 @@ jobs:
             sed -i "/import .*\.R;/d" "$dest"
           done
 
-          # 5. リソースの厳密抽出
           find raw_extract -path "*/res/layout/*.xml" -not -name "AndroidManifest.xml" | while read x; do
             base=$(basename "$x" | tr '[:upper:]' '[:lower:]')
             cp "$x" "app/src/main/res/layout/$base"
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
-          # 6. マニフェスト再構築
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
@@ -87,7 +80,6 @@ jobs:
               compileSdk 34
               defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-STABLE" }
               
-              # 【核心】JavaとKotlinのターゲットを物理的に17へ統一
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
