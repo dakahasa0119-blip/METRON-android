@@ -25,47 +25,49 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Total Overwrite
+      - name: Build and Total Overwrite V2
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
-          # 1. 物理的特定
+          # 1. 物理特定（絶対パス）
           ROOT_FILE=$(find $(pwd) -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
           PROJECT_ROOT=$(dirname "$ROOT_FILE")
           APP_GRADLE=$(find "$PROJECT_ROOT" -name "build.gradle" | grep "/app/" | head -n 1)
           APP_DIR=$(dirname "$APP_GRADLE")
-          
-          # 2. 工場の発注システム（settings.gradle）を上書き
-          # これにより Google() リポジトリを強制認識させます
+          ROOT_GRADLE="$PROJECT_ROOT/build.gradle"
+
+          # 2. リポジトリ管理の統一（settings.gradle）
           cat <<EOF > "$PROJECT_ROOT/settings.gradle"
           pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
           }
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+              repositories { google(); mavenCentral() }
           }
           rootProject.name = "METRON-android"
           include ':app'
           EOF
 
-          # 3. 魂の抽出
+          # 3. ルートのbuild.gradleを浄化（空にするか、最小限のプラグイン定義のみ）
+          # 二重定義エラーを避けるため、ここではリポジトリを書かない
+          cat <<EOF > "$ROOT_GRADLE"
+          buildscript {
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'com.google.gms:google-services:4.4.0'
+              }
+          }
+          EOF
+
+          # 4. 魂の抽出
           MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
 
-          # 4. 設計図（app/build.gradle）を上書き（プラグインにバージョンを明記）
+          # 5. 設計図（app/build.gradle）を上書き
           cat <<EOF > "$APP_GRADLE"
-          plugins {
-              id 'com.android.application' version '8.2.2'
-              id 'com.google.gms.google-services' version '4.4.0'
-          }
+          apply plugin: 'com.android.application'
+          apply plugin: 'com.google.gms.google-services'
 
           android {
               namespace '$PACKAGE_NAME'
@@ -87,14 +89,14 @@ jobs:
           }
           EOF
 
-          # 5. Firebase設定と環境構築
+          # 6. Firebase設定と実行
           echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
           cd "$PROJECT_ROOT"
           gradle wrapper
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-          # 6. 救出
+          # 7. 救出
           mkdir -p $GITHUB_WORKSPACE/temp_artifacts
           find "$PROJECT_ROOT" -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
