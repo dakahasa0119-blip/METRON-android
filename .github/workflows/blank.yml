@@ -25,38 +25,42 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Total Overwrite V2
+      - name: Build and Total Overwrite V3
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
-          # 1. 物理特定（絶対パス）
+          # 1. 物理特定
           ROOT_FILE=$(find $(pwd) -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
           PROJECT_ROOT=$(dirname "$ROOT_FILE")
           APP_GRADLE=$(find "$PROJECT_ROOT" -name "build.gradle" | grep "/app/" | head -n 1)
           APP_DIR=$(dirname "$APP_GRADLE")
           ROOT_GRADLE="$PROJECT_ROOT/build.gradle"
 
-          # 2. リポジトリ管理の統一（settings.gradle）
+          # 2. 地図（Repositories）の完全一元化
           cat <<EOF > "$PROJECT_ROOT/settings.gradle"
           pluginManagement {
-              repositories { google(); mavenCentral(); gradlePluginPortal() }
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
           }
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories { google(); mavenCentral() }
+              repositories {
+                  google()
+                  mavenCentral()
+              }
           }
           rootProject.name = "METRON-android"
           include ':app'
           EOF
 
-          # 3. ルートのbuild.gradleを浄化（空にするか、最小限のプラグイン定義のみ）
-          # 二重定義エラーを避けるため、ここではリポジトリを書かない
+          # 3. ルートのbuild.gradle（プラグインの宣言のみに特化）
           cat <<EOF > "$ROOT_GRADLE"
-          buildscript {
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'com.google.gms:google-services:4.4.0'
-              }
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'com.google.gms.google-services' version '4.4.0' apply false
           }
           EOF
 
@@ -64,10 +68,12 @@ jobs:
           MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
 
-          # 5. 設計図（app/build.gradle）を上書き
+          # 5. 設計図（app/build.gradle）
           cat <<EOF > "$APP_GRADLE"
-          apply plugin: 'com.android.application'
-          apply plugin: 'com.google.gms.google-services'
+          plugins {
+              id 'com.android.application'
+              id 'com.google.gms.google-services'
+          }
 
           android {
               namespace '$PACKAGE_NAME'
