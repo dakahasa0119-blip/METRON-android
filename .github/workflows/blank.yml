@@ -16,14 +16,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle Environment
+      - name: Unzip and Pre-Configure
         run: |
-          # 物理的な Gradle 実行環境の確保
-          gradle wrapper --gradle-version 8.7
-          chmod +x gradlew
-
-      - name: Unzip
-        run: unzip -o *.zip -d .
+          unzip -o *.zip -d .
+          # 先に設定ファイルの雛形を作り、Gradleが「ここがプロジェクトだ」と認識できるようにする
+          echo "include ':app'" > settings.gradle
+          touch build.gradle
 
       - name: Surgical Debug Implementation
         run: |
@@ -55,9 +53,10 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   val logView = TextView(this).apply { 
-                      textSize = 12f
+                      textSize = 14f
                       setTextColor(Color.GREEN)
                       setBackgroundColor(Color.BLACK)
+                      setPadding(20, 20, 20, 20)
                   }
                   val scrollView = ScrollView(this)
                   scrollView.addView(logView)
@@ -74,9 +73,7 @@ jobs:
                       logView.text = "--- METRON DEBUG SYSTEM ACTIVE ---\n"
                       logView.append("Package: $PACKAGE_NAME\n")
                       logView.append("Activity: $REAL_ACTIVITY_NAME\n")
-                      logView.append("Status: Running... (Wait for error)\n\n")
-                      
-                      // ここに本来のコードを注入せず、まずはシステムを安定起動させる
+                      logView.append("Status: Awaiting System Logic...\n\n")
                   } catch (e: Exception) {
                       logView.append(e.stackTraceToString())
                   }
@@ -84,25 +81,18 @@ jobs:
           }
           EOF
 
-          # 5. 設定ファイル群の生成
-          cat <<EOF > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
-              <application android:label="METRON_DEBUG" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".$REAL_ACTIVITY_NAME" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
+          # 5. ビルド定義の完全上書き
+          cat <<EOF > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
           EOF
 
-          echo "android.useAndroidX=true" > gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          echo "include ':app'" > settings.gradle
-          
           cat <<EOF > app/build.gradle
           apply plugin: 'com.android.application'
           apply plugin: 'org.jetbrains.kotlin.android'
@@ -118,7 +108,28 @@ jobs:
           }
           EOF
 
-          # 6. 実行（権限確保済み）
+          cat <<EOF > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
+              <application android:label="METRON_DEBUG" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity android:name=".$REAL_ACTIVITY_NAME" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          
+          echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+
+      - name: Build with Gradle
+        run: |
+          # ここで初めてGradleを召喚。設定ファイルが既にあるので動作する。
+          gradle wrapper --gradle-version 8.7
+          chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
       - name: Archive Debug APK
