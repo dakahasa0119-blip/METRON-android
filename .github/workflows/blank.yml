@@ -1,4 +1,4 @@
-name: Pure Build to APK (Namespace Fix)
+name: Pure Build to APK (Final Fix)
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
 
       - name: Surgical Alignment & Debug Injection
         run: |
-          # 1. パッケージ名特定（変数としてのみ保持）
+          # 1. パッケージ名特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN" || echo "com.arc")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
@@ -55,9 +55,8 @@ jobs:
           # 4. リソース救出
           find . -name "*.xml" -not -name "AndroidManifest.xml" -path "*/res/*" -exec cp {} app/src/main/res/layout/ \; 2>/dev/null || true
           
-          # 5. 【重要】AndroidManifestからpackage属性を完全に排除
+          # 5. AndroidManifest (Namespace準拠)
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
-          
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -72,10 +71,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Final Build
-        run: |
-          PACKAGE_NAME=$(grep -oP 'package \K[^;]+' $(find app/src/main/java -name "*.kt" -o -name "*.java" | head -n 1))
-          
+          # 6. Build Files (物理的に変数を埋め込む)
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -95,7 +91,7 @@ jobs:
                   minSdk 24
                   targetSdk 34
                   versionCode 1
-                  versionName "1.0-FIX"
+                  versionName "1.0-STABLE"
               }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
@@ -108,6 +104,8 @@ jobs:
           }
           EOF
 
+      - name: Build with Gradle
+        run: |
           gradle wrapper --gradle-version 8.7
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
