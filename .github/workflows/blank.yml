@@ -1,55 +1,25 @@
-name: Build and Deploy to Firebase (Perfect Construction)
-
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    - name: Setup Gradle 8.7 Official
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: 8.7
-        cache-disabled: true
-
-    - name: Unzip project
-      run: unzip -o *.zip -d .
-
-    - name: Build and Force Construction (The Perfect Injector)
+- name: Build and Force Construction (Precision Injector)
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # 1. 艦長の修正ロジック：Manifestを確実に取得
+        # 1. Manifestからパッケージ名を抽出（艦長のロジックを継承）
         MANIFEST=$(find . -type f -path "*/src/main/AndroidManifest.xml" | head -n 1)
-        if [ -z "$MANIFEST" ]; then
-          echo "Manifest が見つかりません。ZIP の構造を確認してください。"
-          exit 1
-        fi
         PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
 
-        # 2. 艦長の修正ロジック：app/build.gradleを確実に取得
+        # 2. app/build.gradleを特定
         APP_GRADLE=$(find . -type f -path "*/app/build.gradle" | head -n 1)
-        if [ -z "$APP_GRADLE" ]; then
-          echo "app/build.gradle が見つかりません。ZIP の構造を確認してください。"
-          exit 1
+
+        # 3. 精密注入：pluginsブロックの直後にnamespaceを定義
+        # 文法エラーを避けるため、既存の android { ブロックを検索し、その直前に挿入する
+        if [ -n "$APP_GRADLE" ]; then
+          # すでに namespace が書かれている可能性を考慮し、既存の行があれば削除してから注入
+          sed -i '/namespace /d' "$APP_GRADLE"
+          # android { という文字列の直後に namespace を差し込む
+          sed -i "/android {/a \    namespace '$PACKAGE_NAME'" "$APP_GRADLE"
+          echo "Precisely injected namespace '$PACKAGE_NAME' into $APP_GRADLE"
         fi
 
-        # 3. 艦長の修正ロジック：namespaceを強制注入
-        sed -i "1i android { namespace '$PACKAGE_NAME' }" "$APP_GRADLE"
-        echo "Injected namespace '$PACKAGE_NAME' into $APP_GRADLE"
-
-        # 4. プロジェクトルートを特定してGradleを補完
+        # 4. プロジェクトルート特定と実行環境構築
         ROOT_FILE=$(find . -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
         PROJECT_ROOT=$(dirname "$ROOT_FILE")
         cd "$PROJECT_ROOT"
@@ -57,20 +27,12 @@ jobs:
         chmod +x gradlew
 
         # 5. Firebase設定の物理注入
-        APP_DIR=$(dirname "$(find . -name "build.gradle" | grep "/app/" | head -n 1)")
+        APP_DIR=$(dirname "$APP_GRADLE")
         echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
 
-        # 6. 構築実行（Releaseビルド）
+        # 6. 構築実行
         ./gradlew assembleRelease --no-daemon
         
-        # 7. 成果物を固定パスへ救出
+        # 7. 成果物を救出
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
         find . -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
-
-    - name: Upload to Firebase App Distribution
-      uses: wzieba/Firebase-Distribution-Github-Action@v1
-      with:
-        appId: ${{ secrets.FIREBASE_APP_ID }}
-        token: ${{ secrets.FIREBASE_TOKEN }}
-        groups: testers
-        file: temp_artifacts/app-release-unsigned.apk
