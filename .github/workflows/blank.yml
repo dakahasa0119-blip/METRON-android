@@ -1,5 +1,10 @@
-name: ARC_FORCE_OVERWRITE_SIGN
-on: [push, workflow_dispatch]
+name: ARC_NEXT_INCARNATION
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -8,23 +13,27 @@ jobs:
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
 
-      - name: Create Fixed Keystore
+      - name: Reconstruct for New Identity
         run: |
-          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-
-      - name: Reconstruct Project
-        run: |
+          # 1. 物理配置の再構築
           mkdir -p app/src/main/java/com/arc
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
+
+          # 2. ソースのクリーン配置
           unzip -o *.zip -d raw_extract || true
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
+          # パッケージ宣言は com.arc のままでOK（IDだけ変える手法）
           find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
-          
+
+          # 3. AndroidManifest.xml (パッケージ名競合を回避する設定)
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="ARC_METRON" android:icon="@android:mipmap/sym_def_app_icon" android:theme="@style/Theme.AppCompat.NoActionBar">
+              <application 
+                  android:label="ARC_NEXT" 
+                  android:icon="@android:mipmap/sym_def_app_icon"
+                  android:theme="@style/Theme.AppCompat.NoActionBar">
                   <activity android:name="com.arc.MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -35,7 +44,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build with Fixed Signature
+      - name: Build with New Application ID
         run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
@@ -43,7 +52,10 @@ jobs:
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -51,26 +63,14 @@ jobs:
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android { 
-              namespace 'com.arc'
+              namespace 'com.arc.next'
               compileSdk 34
-              signingConfigs {
-                  release {
-                      storeFile file("../debug.keystore")
-                      storePassword "android"
-                      keyAlias "androiddebugkey"
-                      keyPassword "android"
-                  }
-              }
               defaultConfig { 
-                  applicationId "com.arc" 
+                  applicationId "com.arc.next"  # ここが物理的に変わることで別アプリになる
                   minSdk 24 
                   targetSdk 34 
-                  versionCode 2000000
-                  versionName "1.0-FIXED-SIGN" 
-              }
-              buildTypes {
-                  debug { signingConfig signingConfigs.release }
-                  release { signingConfig signingConfigs.release }
+                  versionCode 100 # 過去の自分を確実に上回る
+                  versionName "2.0-NEXT" 
               }
           }
           dependencies {
@@ -78,12 +78,13 @@ jobs:
               implementation 'com.google.android.material:material:1.11.0'
           }
           EOF
+
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Delivery
+      - name: Archive
         uses: actions/upload-artifact@v4
         with:
-          name: arc-signed-apk
+          name: arc-next-apk
           path: app/build/outputs/apk/debug/*.apk
