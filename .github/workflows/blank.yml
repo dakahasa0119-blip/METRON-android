@@ -1,4 +1,4 @@
-name: Pure Build to APK (Launcher Direct Link)
+name: Pure Build to APK (Syntax & Launcher Fix)
 
 on:
   push:
@@ -9,9 +9,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: checkout@v4
+      - uses: actions/checkout@v4
 
-      - uses: setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -21,7 +21,7 @@ jobs:
           # 1. 物理構造の初期化
           unzip -o *.zip -d temp_src
           
-          # 2. パッケージ名を物理特定（最優先）
+          # 2. パッケージ名を物理特定
           PACKAGE_NAME=$(grep -rP 'package \K[\w.]+' temp_src | head -n 1 | grep -oP '[\w.]+' || echo "com.arc")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
@@ -45,8 +45,7 @@ jobs:
             cp "$x" app/src/main/res/layout/ 2>/dev/null || true
           done
 
-          # 5. 【核心】Launcher Activityを物理特定し、マニフェストへ刻む
-          # zip内のActivityクラスを強制的に「起動用」に指定
+          # 5. Launcher Activityを物理特定し、マニフェストへ刻む
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
 
           cat <<EOF > app/src/main/AndroidManifest.xml
@@ -84,7 +83,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-LAUNCHER-FIX" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-FIX" }
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
