@@ -1,4 +1,4 @@
-name: ARC_NEXT_INCARNATION
+name: METRON_NEW_BIRTH
 
 on:
   push:
@@ -10,31 +10,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
 
       - name: Reconstruct for New Identity
         run: |
-          # 1. 物理配置の再構築
-          mkdir -p app/src/main/java/com/arc
+          # 1. 物理配置の再構築（新パッケージ名 com.arc.metron に合わせる）
+          mkdir -p app/src/main/java/com/arc/metron
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 2. ソースのクリーン配置
+          # 2. 全ソースを新パッケージへ移動し、内部コードを物理置換
           unzip -o *.zip -d raw_extract || true
-          find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
-          # パッケージ宣言は com.arc のままでOK（IDだけ変える手法）
-          find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
+          find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/metron/ \;
+          # ソース内の package 宣言を強制的に書き換え
+          find app/src/main/java/com/arc/metron -type f -exec sed -i "s/^package .*/package com.arc.metron/" {} +
 
-          # 3. AndroidManifest.xml (パッケージ名競合を回避する設定)
+          # 3. AndroidManifest.xml（完全に独立した新アプリとして定義）
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application 
-                  android:label="ARC_NEXT" 
+                  android:label="METRON_STABLE" 
                   android:icon="@android:mipmap/sym_def_app_icon"
-                  android:theme="@style/Theme.AppCompat.NoActionBar">
-                  <activity android:name="com.arc.MainActivity" android:exported="true">
+                  android:theme="@style/Theme.AppCompat.NoActionBar"
+                  android:allowBackup="true"
+                  android:supportsRtl="true">
+                  
+                  <activity 
+                      android:name="com.arc.metron.MainActivity" 
+                      android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -44,11 +50,12 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build with New Application ID
+      - name: Build New Package APK
         run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           
+          # Root build.gradle
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -60,22 +67,24 @@ jobs:
           allprojects { repositories { google(); mavenCentral() } }
           EOF
 
+          # App build.gradle（ApplicationId を com.arc.metron に変更）
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android { 
-              namespace 'com.arc.next'
+              namespace 'com.arc.metron'
               compileSdk 34
               defaultConfig { 
-                  applicationId "com.arc.next"  # ここが物理的に変わることで別アプリになる
+                  applicationId "com.arc.metron" 
                   minSdk 24 
                   targetSdk 34 
-                  versionCode 100 # 過去の自分を確実に上回る
-                  versionName "2.0-NEXT" 
+                  versionCode 1 
+                  versionName "1.0-METRON" 
               }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
           EOF
 
@@ -83,8 +92,8 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Archive
+      - name: Artifact Delivery
         uses: actions/upload-artifact@v4
         with:
-          name: arc-next-apk
+          name: metron-new-app
           path: app/build/outputs/apk/debug/*.apk
