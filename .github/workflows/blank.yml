@@ -1,10 +1,5 @@
 name: ARC_FORCE_OVERWRITE_SIGN
-
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
+on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,7 +10,6 @@ jobs:
 
       - name: Create Fixed Keystore
         run: |
-          # 物理的な「署名鍵」をその場で生成し、常にこれを使うように固定する
           keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Reconstruct Project
@@ -27,7 +21,6 @@ jobs:
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
           find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
           
-          # AndroidManifest (現状維持)
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -47,7 +40,14 @@ jobs:
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           
-          # App build.gradle (署名設定を物理的に追加)
+          cat <<EOF > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android { 
@@ -65,7 +65,7 @@ jobs:
                   applicationId "com.arc" 
                   minSdk 24 
                   targetSdk 34 
-                  versionCode 2000000  # 圧倒的な数値
+                  versionCode 2000000
                   versionName "1.0-FIXED-SIGN" 
               }
               buildTypes {
