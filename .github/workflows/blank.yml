@@ -16,10 +16,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.7
+      - name: Setup Gradle Environment
+        run: |
+          # 物理的な Gradle 実行環境の確保
+          gradle wrapper --gradle-version 8.7
+          chmod +x gradlew
 
       - name: Unzip
         run: unzip -o *.zip -d .
@@ -38,45 +39,52 @@ jobs:
           mkdir -p app/src/main/res/values
 
           # 3. メインActivityの特定
-          REAL_ACTIVITY_FILE=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" . --include="*.kt" --include="*.java" | head -n 1 | cut -d: -f1)
-          REAL_ACTIVITY_NAME=$(grep -oP "class \K\w+" "$REAL_ACTIVITY_FILE" | head -n 1)
+          REAL_ACTIVITY_FILE=$(find . -maxdepth 10 -name "*.kt" -o -name "*.java" | xargs grep -lE "class .* : .*Activity|class .* extends .*Activity" | head -n 1)
+          REAL_ACTIVITY_NAME=$(grep -oP "class \K\w+" "$REAL_ACTIVITY_FILE" | head -n 1 || echo "MainActivity")
 
-          # 4. 【核心】エラーキャッチ回路の強制挿入
-          # 既存のMainActivityを「エラー表示用」に魔改造
+          # 4. 【核心】エラーキャッチ回路の物理挿入
           cat <<EOF > "app/src/main/java/$PACKAGE_PATH/$REAL_ACTIVITY_NAME.kt"
           package $PACKAGE_NAME
           import android.os.Bundle
           import android.widget.TextView
           import android.widget.ScrollView
+          import android.graphics.Color
           import androidx.appcompat.app.AppCompatActivity
 
           class $REAL_ACTIVITY_NAME : AppCompatActivity() {
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
-                  val logView = TextView(this)
+                  val logView = TextView(this).apply { 
+                      textSize = 12f
+                      setTextColor(Color.GREEN)
+                      setBackgroundColor(Color.BLACK)
+                  }
                   val scrollView = ScrollView(this)
                   scrollView.addView(logView)
                   setContentView(scrollView)
 
                   Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
                       runOnUiThread {
-                          logView.text = "CRASH LOG:\n\n" + throwable.stackTraceToString()
+                          logView.append("\n\n!!! CRASH DETECTED !!!\n")
+                          logView.append(throwable.stackTraceToString())
                       }
                   }
 
                   try {
-                      logView.text = "System Initializing...\n"
-                      // ここに本来の起動ロジックを入れる代わりに、まずは生存確認
+                      logView.text = "--- METRON DEBUG SYSTEM ACTIVE ---\n"
                       logView.append("Package: $PACKAGE_NAME\n")
-                      logView.append("Status: Active\n")
+                      logView.append("Activity: $REAL_ACTIVITY_NAME\n")
+                      logView.append("Status: Running... (Wait for error)\n\n")
+                      
+                      // ここに本来のコードを注入せず、まずはシステムを安定起動させる
                   } catch (e: Exception) {
-                      logView.text = e.stackTraceToString()
+                      logView.append(e.stackTraceToString())
                   }
               }
           }
           EOF
 
-          # 5. Manifest / Gradle設定（最小構成）
+          # 5. 設定ファイル群の生成
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
@@ -84,7 +92,7 @@ jobs:
                   <activity android:name=".$REAL_ACTIVITY_NAME" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHer" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
               </application>
@@ -94,6 +102,7 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
           echo "include ':app'" > settings.gradle
+          
           cat <<EOF > app/build.gradle
           apply plugin: 'com.android.application'
           apply plugin: 'org.jetbrains.kotlin.android'
@@ -109,6 +118,7 @@ jobs:
           }
           EOF
 
+          # 6. 実行（権限確保済み）
           ./gradlew assembleRelease --no-daemon
 
       - name: Archive Debug APK
