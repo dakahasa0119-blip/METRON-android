@@ -18,29 +18,59 @@ jobs:
 
       - name: Surgical Extraction
         run: |
+          # 1. 解凍
           unzip -o *.zip -d raw_extract || true
+          
+          # 2. パッケージ名取得（安全な複数行記述）
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
-          if [ -z "$MAIN_FILE" ]; then PACKAGE_NAME="com.arc"; else PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//'); fi
+          if [ -z "$MAIN_FILE" ]; then
+            PACKAGE_NAME="com.arc"
+          else
+            PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//')
+          fi
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
+
+          # 3. ディレクトリ構築
           rm -rf app
-          mkdir -p app/src/main/java/$PACKAGE_PATH
+          mkdir -p "app/src/main/java/$PACKAGE_PATH"
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
+          # 4. ソースコード配置と物理補正
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
+            # パッケージ名統一
             sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
+            # JSONObject の型アンビギュイティ回避 (sedのデリミタを変更して安全に)
+            sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' "$dest"
           done
 
-          cat <<EOF > "app/src/main/java/$PACKAGE_PATH/SafetyExtensions.kt"
-          package $PACKAGE_NAME
+          # 5. 不足プロパティの「受肉」 (SafetyBuffer.kt)
+          # EOFをクォートすることで、中の変数をシェルが評価するのを防ぐ
+          cat <<'EOF' > "app/src/main/java/$PACKAGE_PATH/SafetyBuffer.kt"
+          package com.arc
+          import android.widget.EditText
+          
           var Any?.prefs: Any? get() = this; set(v) {}
+          var Any?.selectedSlotIndex: Int get() = 0; set(v) {}
+          var Any?.profileSlot1: String get() = ""; set(v) {}
+          var Any?.profileSlot2: String get() = ""; set(v) {}
+          var Any?.profileSlot3: String get() = ""; set(v) {}
           var Any?.copilotResp: String get() = ""; set(v) {}
+          var Any?.currentProfile: String get() = ""; set(v) {}
+          var Any?.text: Any? get() = ""; set(v) {}
+          fun Any?.toEditText(): EditText? = null
           EOF
+          
+          # 生成したファイルのパッケージ名を動的に修正
+          sed -i "s/^package .*/package $PACKAGE_NAME/" "app/src/main/java/$PACKAGE_PATH/SafetyBuffer.kt"
 
+          # 6. リソースとマニフェスト（物理配置を厳守）
           find raw_extract -path "*/res/layout/*.xml" | while read x; do
-            if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then cp "$x" "app/src/main/res/layout/"; fi
+            if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then
+              cp "$x" "app/src/main/res/layout/"
+            fi
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
@@ -49,7 +79,12 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:usesCleartextTraffic="true">
-                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
                   <activity android:name=".SettingsActivity" android:exported="false" />
               </application>
           </manifest>
@@ -65,7 +100,10 @@ jobs:
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -76,7 +114,13 @@ jobs:
               namespace '$PACKAGE_NAME'
               compileSdk 34
               buildFeatures { viewBinding true }
-              defaultConfig { applicationId "$PACKAGE_NAME"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig { 
+                  applicationId "$PACKAGE_NAME"
+                  minSdk 24 
+                  targetSdk 34 
+                  versionCode 1 
+                  versionName "1.0-FIXED" 
+              }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
