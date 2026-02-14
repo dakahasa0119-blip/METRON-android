@@ -1,4 +1,4 @@
-name: Pure Build to APK (Crash Fix)
+name: Pure Build to APK (Debug Mode)
 
 on:
   push:
@@ -20,59 +20,71 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.7
-          cache-disabled: true
 
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Surgical Code Cleaning & Build
+      - name: Surgical Debug Implementation
         run: |
-          # 1. 物理特定
+          # 1. パッケージ名特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
-          PROJECT_DIR_ORIGIN=$(echo "$MANIFEST_ORIGIN" | sed 's|/src/main/AndroidManifest.xml||')
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN" || echo "com.arc")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 2. 構造の再構築
+          # 2. 構造再構築
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. 【外科手術】ソースコードの物理洗浄
-          find "$PROJECT_DIR_ORIGIN" -name "*.kt" -o -name "*.java" | while read file; do
-            dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
-            cp "$file" "$dest"
-            
-            # Firebase関連のインポートとコードを物理的に消去
-            sed -i "/import com.google.firebase/d" "$dest"
-            sed -i "/FirebaseApp/d" "$dest"
-            sed -i "/FirebaseAnalytics/d" "$dest"
-            sed -i "/FirebaseMessaging/d" "$dest"
-            
-            # パッケージ名とRクラスの強制同期
-            sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
-            sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
-          done
+          # 3. メインActivityの特定
+          REAL_ACTIVITY_FILE=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" . --include="*.kt" --include="*.java" | head -n 1 | cut -d: -f1)
+          REAL_ACTIVITY_NAME=$(grep -oP "class \K\w+" "$REAL_ACTIVITY_FILE" | head -n 1)
 
-          # 4. リソース救出
-          find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" | while read xml; do
-            if [[ "$(basename "$xml")" != "AndroidManifest.xml" ]]; then
-              cp "$xml" app/src/main/res/layout/
-            fi
-          done
+          # 4. 【核心】エラーキャッチ回路の強制挿入
+          # 既存のMainActivityを「エラー表示用」に魔改造
+          cat <<EOF > "app/src/main/java/$PACKAGE_PATH/$REAL_ACTIVITY_NAME.kt"
+          package $PACKAGE_NAME
+          import android.os.Bundle
+          import android.widget.TextView
+          import android.widget.ScrollView
+          import androidx.appcompat.app.AppCompatActivity
 
-          # 5. ManifestとGradleの安定版生成
-          REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
-          
+          class $REAL_ACTIVITY_NAME : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val logView = TextView(this)
+                  val scrollView = ScrollView(this)
+                  scrollView.addView(logView)
+                  setContentView(scrollView)
+
+                  Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+                      runOnUiThread {
+                          logView.text = "CRASH LOG:\n\n" + throwable.stackTraceToString()
+                      }
+                  }
+
+                  try {
+                      logView.text = "System Initializing...\n"
+                      // ここに本来の起動ロジックを入れる代わりに、まずは生存確認
+                      logView.append("Package: $PACKAGE_NAME\n")
+                      logView.append("Status: Active\n")
+                  } catch (e: Exception) {
+                      logView.text = e.stackTraceToString()
+                  }
+              }
+          }
+          EOF
+
+          # 5. Manifest / Gradle設定（最小構成）
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
-              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".$REAL_ACTIVITY" android:exported="true">
+              <application android:label="METRON_DEBUG" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity android:name=".$REAL_ACTIVITY_NAME" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+                          <category android:name="android.intent.category.LAUNCHer" />
                       </intent-filter>
                   </activity>
               </application>
@@ -82,40 +94,25 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
           echo "include ':app'" > settings.gradle
-          
-          cat <<EOF > build.gradle
-          buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
-              }
-          }
-          allprojects { repositories { google(); mavenCentral() } }
-          EOF
-
           cat <<EOF > app/build.gradle
           apply plugin: 'com.android.application'
           apply plugin: 'org.jetbrains.kotlin.android'
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG" }
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.9.0'
               implementation 'androidx.core:core-ktx:1.12.0'
           }
           EOF
 
-          # 6. 実行
-          gradle wrapper
           ./gradlew assembleRelease --no-daemon
 
-      - name: Archive APK
+      - name: Archive Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-apk
+          name: metron-debug-apk
           path: app/build/outputs/apk/release/*.apk
