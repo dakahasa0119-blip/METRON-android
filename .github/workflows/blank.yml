@@ -24,26 +24,29 @@ jobs:
         cache-disabled: true
 
     - name: Unzip project
-      # 日本語ファイル名による「cannot find or open」をワイルドカードで物理回避
+      # 名前に関わらずZIPを解凍。
       run: unzip -o *.zip -d .
 
     - name: Build and Configure
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # プロジェクトルート特定
-        GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
-        cd "$GRADLE_ROOT"
+        # 1. 解凍された中から gradlew を物理捜索して移動
+        GRADLE_PATH=$(find . -name "gradlew" -type f | head -n 1)
+        if [ -z "$GRADLE_PATH" ]; then echo "gradlew not found"; exit 1; fi
+        cd $(dirname "$GRADLE_PATH")
         
-        # Firebase設定（google-services.json）の物理注入
+        # 2. 実行権限を付与
+        chmod +x ./gradlew
+        
+        # 3. Firebase設定の注入（appフォルダを特定）
         APP_DIR=$(find . -name "app" -type d | head -n 1)
         echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
 
-        # 艦長の指示通り「構築（解析基盤の確立）」のためにReleaseビルドを実行
-        chmod +x gradlew
+        # 4. 構築実行（Releaseビルドで解析用Mappingを生成）
         ./gradlew assembleRelease --no-daemon
         
-        # 成果物(APK)を固定パスへコピー（Crashlytics用のMapping生成もこの工程で完遂）
+        # 5. 成果物を固定パスへ救出
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
         find . -name "app-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
 
@@ -53,5 +56,4 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        # 物理的に構築されたAPKをアップロード
         file: temp_artifacts/app-release-unsigned.apk
