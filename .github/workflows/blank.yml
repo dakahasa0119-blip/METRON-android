@@ -26,12 +26,20 @@ jobs:
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
           find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
 
-          # 3. AndroidManifest.xml のテーマを標準化
+          # 3. AndroidManifest.xml を「アイコン出現」の完全版に修正
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="ARC" android:theme="@style/Theme.AppCompat.NoActionBar">
-                  <activity android:name="com.arc.MainActivity" android:exported="true">
+              <application 
+                  android:label="ARC_METRON" 
+                  android:icon="@android:mipmap/sym_def_app_icon"
+                  android:theme="@style/Theme.AppCompat.NoActionBar"
+                  android:allowBackup="true"
+                  android:supportsRtl="true">
+                  
+                  <activity 
+                      android:name="com.arc.MainActivity" 
+                      android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
