@@ -1,4 +1,4 @@
-name: ARC_FINAL_BUILD
+name: ARC_FINAL_STABLE_BUILD
 
 on:
   push:
@@ -16,12 +16,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Surgical Extraction
+      - name: Surgical Extraction & Nucleus Injection
         run: |
           # 1. 解凍
           unzip -o *.zip -d raw_extract || true
           
-          # 2. パッケージ名取得（安全な複数行記述）
+          # 2. パッケージ名取得
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
           if [ -z "$MAIN_FILE" ]; then
             PACKAGE_NAME="com.arc"
@@ -36,37 +36,30 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 4. ソースコード配置と物理補正
+          # 4. ソースコード配置と物理補正（深部外科手術）
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
+            
             # パッケージ名統一
             sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
-            # JSONObject の型アンビギュイティ回避 (sedのデリミタを変更して安全に)
-            sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' "$dest"
+            
+            # Prefs.kt への直接注入 (prefs 変数の受肉)
+            if [[ "$f" == *"Prefs.kt"* ]]; then
+              sed -i '/class Prefs/a \    private val prefs: android.content.SharedPreferences? = null' "$dest"
+              sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' "$dest"
+            fi
+            
+            # SettingsActivity への直接注入 (不足変数の受肉)
+            if [[ "$f" == *"SettingsActivity.kt"* ]]; then
+              sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0\n    private var profileSlot1: String = ""\n    private var profileSlot2: String = ""\n    private var profileSlot3: String = ""' "$dest"
+              # text プロパティへの曖昧な参照を補正
+              sed -i 's/\.text =/.setText(/g' "$dest"
+              sed -i 's/\.text$/.getText().toString()/g' "$dest"
+            fi
           done
 
-          # 5. 不足プロパティの「受肉」 (SafetyBuffer.kt)
-          # EOFをクォートすることで、中の変数をシェルが評価するのを防ぐ
-          cat <<'EOF' > "app/src/main/java/$PACKAGE_PATH/SafetyBuffer.kt"
-          package com.arc
-          import android.widget.EditText
-          
-          var Any?.prefs: Any? get() = this; set(v) {}
-          var Any?.selectedSlotIndex: Int get() = 0; set(v) {}
-          var Any?.profileSlot1: String get() = ""; set(v) {}
-          var Any?.profileSlot2: String get() = ""; set(v) {}
-          var Any?.profileSlot3: String get() = ""; set(v) {}
-          var Any?.copilotResp: String get() = ""; set(v) {}
-          var Any?.currentProfile: String get() = ""; set(v) {}
-          var Any?.text: Any? get() = ""; set(v) {}
-          fun Any?.toEditText(): EditText? = null
-          EOF
-          
-          # 生成したファイルのパッケージ名を動的に修正
-          sed -i "s/^package .*/package $PACKAGE_NAME/" "app/src/main/java/$PACKAGE_PATH/SafetyBuffer.kt"
-
-          # 6. リソースとマニフェスト（物理配置を厳守）
+          # 5. リソース配置 (AndroidManifestの混入を厳禁)
           find raw_extract -path "*/res/layout/*.xml" | while read x; do
             if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then
               cp "$x" "app/src/main/res/layout/"
@@ -74,6 +67,7 @@ jobs:
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
+          # 6. マニフェスト生成
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -119,7 +113,7 @@ jobs:
                   minSdk 24 
                   targetSdk 34 
                   versionCode 1 
-                  versionName "1.0-FIXED" 
+                  versionName "1.0-STABLE" 
               }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
@@ -143,5 +137,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: arc-final-build-apk
+          name: arc-stable-apk
           path: app/build/outputs/apk/release/*.apk
