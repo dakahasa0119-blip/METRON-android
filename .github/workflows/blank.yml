@@ -25,49 +25,42 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Inject Dependencies
+      - name: Build and Force Construction
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
-          # 1. 物理的浄化：誤配置ファイルの削除
+          # 1. 物理的浄化
           find . -path "*/src/main/res/layout/AndroidManifest.xml" -delete
 
-          # 2. Manifestからパッケージ名を抽出
-          MANIFEST=$(find . -type f -path "*/src/main/AndroidManifest.xml" | head -n 1)
-          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
+          # 2. プロジェクト構造の物理特定（絶対パスで固定）
+          APP_GRADLE=$(find $(pwd) -name "build.gradle" | grep "/app/" | head -n 1)
+          APP_DIR=$(dirname "$APP_GRADLE")
+          ROOT_FILE=$(find $(pwd) -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
+          PROJECT_ROOT=$(dirname "$ROOT_FILE")
 
-          # 3. app/build.gradleの特定とライブラリ強制注入
-          APP_GRADLE=$(find . -type f -path "*/app/build.gradle" | head -n 1)
-          if [ -n "$APP_GRADLE" ]; then
-            # 名前空間の注入
-            sed -i '/namespace /d' "$APP_GRADLE"
-            sed -i "/android {/a \    namespace '$PACKAGE_NAME'" "$APP_GRADLE"
-            
-            # 不足しているAppCompatライブラリを物理注入
-            # dependenciesブロックがない場合も想定し、末尾に追加
-            if ! grep -q "androidx.appcompat:appcompat" "$APP_GRADLE"; then
-              echo "dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }" >> "$APP_GRADLE"
-              echo "Injected AppCompat dependency into $APP_GRADLE"
-            fi
+          # 3. 名前空間と依存関係の注入
+          MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
+          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
+          
+          sed -i '/namespace /d' "$APP_GRADLE"
+          sed -i "/android {/a \    namespace '$PACKAGE_NAME'" "$APP_GRADLE"
+          if ! grep -q "androidx.appcompat:appcompat" "$APP_GRADLE"; then
+            echo "dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }" >> "$APP_GRADLE"
           fi
 
-          # 4. プロジェクトルート特定と環境構築
-          ROOT_FILE=$(find . -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
-          PROJECT_ROOT=$(cd $(dirname "$ROOT_FILE") && pwd)
+          # 4. Firebase設定の物理注入（絶対パス $APP_DIR を使用）
+          echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
+          echo "Fixed Path Delivery: ${APP_DIR}/google-services.json"
+
+          # 5. 環境構築と実行
           cd "$PROJECT_ROOT"
           gradle wrapper
           chmod +x gradlew
-
-          # 5. Firebase設定の物理注入
-          APP_DIR=$(dirname "$APP_GRADLE")
-          echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
-
-          # 6. 構築実行
           ./gradlew assembleRelease --no-daemon
           
-          # 7. 成果物を救出
+          # 6. 成果物の救出
           mkdir -p $GITHUB_WORKSPACE/temp_artifacts
-          find . -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
+          find "$PROJECT_ROOT" -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
       - name: Upload
         uses: wzieba/Firebase-Distribution-Github-Action@v1
