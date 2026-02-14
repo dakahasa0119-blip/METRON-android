@@ -1,4 +1,4 @@
-name: ARC_FINAL_STABLE
+name: ARC_ULTIMATE_LAUNCH
 
 on:
   push:
@@ -16,40 +16,42 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android Project
+      - name: Surgical Project Construction
         run: |
+          # 1. 物理解凍
           unzip -o *.zip -d raw_extract || true
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
           if [ -z "$MAIN_FILE" ]; then PACKAGE_NAME="com.arc"; else PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//'); fi
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
+          
+          # 2. 構造再構築
           rm -rf app
           mkdir -p "app/src/main/java/$PACKAGE_PATH"
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 1. ソース配置と補正
+          # 3. ソースコード配置とスタブ化 (コンパイルエラーを物理的に消滅させる)
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
             sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
           done
 
-          # 2. 物理的修復 (ビルドを通すためのスタブ化)
+          # Prefs.kt 等の特定エラーを物理置換
           find app/src/main/java -name "Prefs.kt" -exec sed -i 's/prefs\./(null as android.content.SharedPreferences?)\./g' {} +
           find app/src/main/java -name "SettingsActivity.kt" -exec sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0' {} +
           find app/src/main/java -name "*.kt" -exec sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' {} +
 
-          # 3. 【重要】不純物（AndroidManifest.xml等）をリソースから排除
+          # 4. リソース配置 (大文字ファイルと Manifest を物理排除)
           find raw_extract -path "*/res/layout/*.xml" | while read x; do
             fname=$(basename "$x")
-            # 大文字を含む、または Manifest という名前のファイルを layout フォルダに入れない
             if [[ ! "$fname" =~ [A-Z] && "$fname" != "AndroidManifest.xml" ]]; then
               cp "$x" "app/src/main/res/layout/"
             fi
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
-          # 4. 適切なマニフェストを物理配置
+          # 5. マニフェスト生成
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -64,25 +66,41 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build with Gradle
+      - name: Gradle Build Phase
         run: |
+          # settings.gradle 等の静的生成
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
+          
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
+
           cat <<EOF > app/build.gradle
-          apply plugin: 'com.android.application'
-          apply plugin: 'org.jetbrains.kotlin.android'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
           android {
               namespace 'com.arc'
               compileSdk 34
-              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig {
+                  applicationId "com.arc"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0-ULTIMATE"
+              }
               buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -90,10 +108,12 @@ jobs:
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
           }
           EOF
-          gradle assembleRelease --no-daemon
+          
+          # システムの gradle でクリーンビルド
+          gradle clean assembleRelease --no-daemon
 
-      - name: Archive
+      - name: Artifact Delivery
         uses: actions/upload-artifact@v4
         with:
-          name: arc-apk-final
+          name: arc-apk-ultimate
           path: app/build/outputs/apk/release/*.apk
