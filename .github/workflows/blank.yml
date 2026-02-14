@@ -8,15 +8,36 @@ jobs:
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
       
-      - name: Force Project Structure
+      - name: Force Reconstruction and Log Errors
         run: |
-          # 旗を立て、Gradleにプロジェクトとして認識させる
+          # 1. 物理ディレクトリの強制生成
+          mkdir -p app/src/main/java/com/arc
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+
+          # 2. ソースの配置 (ここがエラーの源泉)
+          unzip -o *.zip -d raw_extract || true
+          find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
+
+          # 3. 旗を立てる
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
-          gradle wrapper --gradle-version 8.5
           
-      - name: Execute Build and Capture Errors
-        run: |
-          # エラーが出ても中断せず、詳細なスタックトレースを表示する
+          # 4. 最小限の build.gradle 生成
+          cat <<EOF > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+
+          cat <<EOF > app/build.gradle
+          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+          android { namespace 'com.arc'; compileSdk 34 }
+          EOF
+
+          # 5. エラーをログに表示させる (失敗しても echo で続行させない)
+          gradle wrapper --gradle-version 8.5
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace --info || echo "BUILD_FAILED_SEE_LOGS"
+          ./gradlew :app:compileDebugKotlin --stacktrace
