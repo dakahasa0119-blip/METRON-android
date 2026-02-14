@@ -1,4 +1,4 @@
-name: Pure Build to APK (Full Logic + Debug)
+name: Pure Build to APK (Full Logic + Debug Auto-Injection)
 
 on:
   push:
@@ -23,58 +23,63 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      - name: Surgical Integration & Debug Injection
+      - name: Surgical Alignment & Debug Injection
         run: |
-          # 1. パッケージ名とメインActivityを特定
+          # 1. パッケージ名とパスを特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN" || echo "com.arc")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 2. 構造再構築
+          # 2. クリーンな構造の作成
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソース移植と「エラー表示回路」の割り込み挿入
+          # 3. ソースの洗浄と「デバッグ表示回路」の強制割り込み
           find . -name "*.kt" -o -name "*.java" | while read file; do
             if [[ "$file" != *"app/src/main/java"* ]]; then
               dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
               cp "$file" "$dest"
               
-              # Firebase除去 & パッケージ同期
+              # 物理洗浄：パッケージ同期とFirebase除去
               sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
               sed -i "/import com.google.firebase/d" "$dest"
               sed -i "/FirebaseApp/d" "$dest"
               sed -i "/import .*\.R;/d" "$dest"
 
-              # MainActivityなら、onCreateの直後にエラーキャッチを挿入
+              # onCreateを見つけたら、直後にデバッグ回路（赤い文字でスタックトレース表示）を注入
               if grep -q "onCreate" "$dest"; then
-                sed -i '/super.onCreate/a \        Thread.setDefaultUncaughtExceptionHandler { _, e -> android.widget.Toast.makeText(this, e.toString(), android.widget.Toast.LENGTH_LONG).show(); val tv = android.widget.TextView(this); tv.text = e.stackTraceToString(); tv.setTextColor(android.graphics.Color.RED); tv.setBackgroundColor(android.graphics.Color.BLACK); runOnUiThread { setContentView(tv) } }' "$dest"
+                sed -i '/super.onCreate/a \        Thread.setDefaultUncaughtExceptionHandler { _, e -> val tv = android.widget.TextView(this); tv.text = "--- METRON CRASH LOG ---\\n" + e.stackTraceToString(); tv.setTextColor(android.graphics.Color.RED); tv.setBackgroundColor(android.graphics.Color.BLACK); tv.setTextSize(12f); runOnUiThread { setContentView(tv) } }' "$dest"
               fi
             fi
           done
 
-          # 4. リソース救出
-          find . -name "*.xml" -not -name "AndroidManifest.xml" -path "*/res/*" -exec cp {} app/src/main/res/layout/ \; 2>/dev/null || true
-          
-          # 5. ビルド設定（JVM17固定）
+          # 4. レイアウトファイルの強制集約
+          find . -name "*.xml" -not -name "AndroidManifest.xml" | while read xml; do
+            if grep -q "<layout" "$xml" || grep -q "android:" "$xml"; then
+              cp "$xml" app/src/main/res/layout/ 2>/dev/null || true
+            fi
+          done
+
+          # 5. Manifest/Build設定の再構築（package属性を維持）
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
           
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
               <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                   <activity android:name=".$REAL_ACTIVITY" android:exported="true">
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
               </application>
           </manifest>
           EOF
 
-      - name: Final Build
+      - name: Build with Gradle
         run: |
           cat <<EOF > build.gradle
           buildscript {
@@ -90,7 +95,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-FULL" }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { signingConfig signingConfigs.debug } }
