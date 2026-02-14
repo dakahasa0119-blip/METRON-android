@@ -1,16 +1,22 @@
-name: CRASH_LOOP_FINDER
-on: [push, workflow_dispatch]
+name: CRASH_LOOP_FIXED_LAUNCH
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
-      
+
       - name: Reconstruct for Runtime Stability
         run: |
-          # 1. 物理配置の再構築（パッケージパスを厳密に固定）
+          # 1. 物理配置の再構築
           mkdir -p app/src/main/java/com/arc
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
@@ -18,14 +24,13 @@ jobs:
           # 2. 全ソースを com.arc パッケージへ強制移動
           unzip -o *.zip -d raw_extract || true
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
-          # コード内の package 宣言を物理的に統一
           find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
 
-          # 3. AndroidManifest.xml を「起動成功」に全振り
+          # 3. AndroidManifest.xml のテーマを標準化
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+              <application android:label="ARC" android:theme="@style/Theme.AppCompat.NoActionBar">
                   <activity android:name="com.arc.MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -36,25 +41,38 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build Debug APK
+      - name: Build Debug APK with Dependencies
         run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
+          
+          # Root build.gradle
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
+
+          # App build.gradle (dependencies を追加して物理欠損を修復)
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android { 
               namespace 'com.arc'
               compileSdk 34
-              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG" }
+              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-FIXED" }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
           EOF
+
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
@@ -62,5 +80,5 @@ jobs:
       - name: Artifact Delivery
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apk-to-inspect
+          name: arc-debug-stable
           path: app/build/outputs/apk/debug/*.apk
