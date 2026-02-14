@@ -1,4 +1,4 @@
-name: Build and Deploy to Firebase
+name: Build and Deploy to Firebase (Construction Mode)
 
 on:
   push:
@@ -24,9 +24,10 @@ jobs:
         cache-disabled: true
 
     - name: Unzip project
-      run: unzip -o Proxyhand-Android.zip -d .
+      # 艦長が入れ替えた最新のZIP名に物理整合
+      run: unzip -o メトロン_SYNC_20260213.zip -d .
 
-    - name: Build APK
+    - name: Build and Configure
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
@@ -34,16 +35,17 @@ jobs:
         GRADLE_ROOT=$(find . -name "gradlew" -type f -exec dirname {} \; | head -n 1)
         cd "$GRADLE_ROOT"
         
-        # Firebase設定の注入
+        # Firebase設定（google-services.json）の物理注入
         APP_DIR=$(find . -name "app" -type d | head -n 1)
         echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
 
-        # ビルド実行
-        gradle assembleDebug --no-daemon
+        # 艦長の指示通り「構築」するためにReleaseビルドを実行（Mappingファイルを生成）
+        chmod +x gradlew
+        ./gradlew assembleRelease --no-daemon
         
-        # 成果物(APK)を確実にルート直下の temp_artifacts にコピーしてパスを固定する
+        # 成果物(APK)を固定パスへコピー
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
-        find . -name "app-debug.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
+        find . -name "app-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/ \;
 
     - name: Upload to Firebase App Distribution
       uses: wzieba/Firebase-Distribution-Github-Action@v1
@@ -51,5 +53,5 @@ jobs:
         appId: ${{ secrets.FIREBASE_APP_ID }}
         token: ${{ secrets.FIREBASE_TOKEN }}
         groups: testers
-        # 固定したパスから確実にアップロード
-        file: temp_artifacts/app-debug.apk
+        # 構築されたAPKを物理アップロード
+        file: temp_artifacts/app-release-unsigned.apk
