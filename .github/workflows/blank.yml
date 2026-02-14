@@ -26,7 +26,7 @@ jobs:
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
           find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
 
-          # 3. AndroidManifest.xml を「アイコン出現」の完全版に修正
+          # 3. AndroidManifest.xml (アイコンとランチャー設定を物理固定)
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -49,7 +49,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build Debug APK with Dependencies
+      - name: Build Debug APK with Force Override
         run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
@@ -66,13 +66,19 @@ jobs:
           allprojects { repositories { google(); mavenCentral() } }
           EOF
 
-          # App build.gradle (dependencies を追加して物理欠損を修復)
+          # App build.gradle (versionCode 1,000,000 で過去を粉砕する)
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android { 
               namespace 'com.arc'
               compileSdk 34
-              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-FIXED" }
+              defaultConfig { 
+                  applicationId "com.arc" 
+                  minSdk 24 
+                  targetSdk 34 
+                  versionCode 1000000 
+                  versionName "1.0-OVERRIDE" 
+              }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -88,5 +94,5 @@ jobs:
       - name: Artifact Delivery
         uses: actions/upload-artifact@v4
         with:
-          name: arc-debug-stable
+          name: arc-override-stable
           path: app/build/outputs/apk/debug/*.apk
