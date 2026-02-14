@@ -25,7 +25,7 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build Pure APK with Resource Sanitization
+      - name: Build Pure APK with Manifest Fix
         run: |
           # 1. 物理特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
@@ -39,7 +39,7 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソースの物理移動と洗浄
+          # 3. ソースの物理移動
           find "$PROJECT_DIR_ORIGIN" -name "*.kt" -o -name "*.java" | while read file; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
             cp "$file" "$dest"
@@ -49,31 +49,39 @@ jobs:
             sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
           done
 
-          # 4. リソースの厳密コピー（XMLファイルのみ、かつAndroidManifestを除外）
+          # 4. リソースの厳密コピー
           find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" | while read xml; do
             if [[ "$(basename "$xml")" != "AndroidManifest.xml" ]]; then
               cp "$xml" app/src/main/res/layout/
             fi
           done
 
-          # 5. 設定ファイルの生成
-          cat <<EOF > gradle.properties
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-
+          # 5. 【修正】標準的な AndroidManifest.xml の生成
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
+          
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.microsoft.com/apk/res/android">
-              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".$REAL_ACTIVITY" android:exported="true">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="$PACKAGE_NAME">
+              <application
+                  android:label="METRON"
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity
+                      android:name=".$REAL_ACTIVITY"
+                      android:exported="true">
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
               </application>
           </manifest>
+          EOF
+
+          # 6. 設定ファイル
+          cat <<EOF > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
           EOF
 
           echo "include ':app'" > settings.gradle
@@ -94,7 +102,13 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig {
+                  applicationId '$PACKAGE_NAME'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -103,7 +117,7 @@ jobs:
           }
           EOF
 
-          # 6. 実行
+          # 7. 実行
           gradle wrapper
           ./gradlew assembleRelease --no-daemon
 
