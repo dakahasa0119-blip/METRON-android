@@ -25,7 +25,7 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Code Sanitization
+      - name: Build and Final Modernization
         env:
           FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
         run: |
@@ -35,27 +35,29 @@ jobs:
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN" || echo "com.arc")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 2. 構造の再構築（クリーンルームの作成）
+          # 2. 構造の再構築
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソースの物理移動と「洗浄」
-          # Rクラス（自動生成されるリソース参照）の不一致を避けるため、既存のインポートを洗浄
+          # 3. ソースの物理移動と洗浄
           find "$PROJECT_DIR_ORIGIN" -name "*.kt" -o -name "*.java" | while read file; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
             cp "$file" "$dest"
-            # 物理洗浄：不正なRクラスインポートや、古いパッケージ参照を削除
             sed -i "/import .*\.R;/d" "$dest"
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
-            # 必要なRクラスのみを現在のパッケージ名で再注入
             sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
           done
-          
           find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" -exec cp {} app/src/main/res/layout/ \;
 
-          # 4. Manifestの動的生成（Activityを再定義）
+          # 4. 【今回の鍵】近代化スイッチ（gradle.properties）の強制生成
+          cat <<EOF > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
+          # 5. Manifest/settings/build.gradle の再定義
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -63,15 +65,13 @@ jobs:
               <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                   <activity android:name=".$REAL_ACTIVITY" android:exported="true">
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+                          <action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
               </application>
           </manifest>
           EOF
 
-          # 5. 設計図生成 (build.gradle) - 一切の無駄を排除
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
           buildscript {
@@ -106,7 +106,7 @@ jobs:
           # 6. Firebase設定と実行
           echo "$FIREBASE_JSON" > "app/google-services.json"
           gradle wrapper
-          ./gradlew assembleRelease --no-daemon --info
+          ./gradlew assembleRelease --no-daemon
 
           # 7. 救出
           mkdir -p $GITHUB_WORKSPACE/temp_artifacts
