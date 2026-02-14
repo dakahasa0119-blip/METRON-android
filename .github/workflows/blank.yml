@@ -1,4 +1,4 @@
-name: ARC_FINAL
+name: ARC_FINAL_STABLE
 
 on:
   push:
@@ -27,35 +27,45 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # ソース配置
+          # 1. ソース配置と補正
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
             sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
           done
 
-          # 物理的修復（Prefs, SettingsActivityのエラーをnullキャストで強引に突破）
+          # 2. 物理的修復 (ビルドを通すためのスタブ化)
           find app/src/main/java -name "Prefs.kt" -exec sed -i 's/prefs\./(null as android.content.SharedPreferences?)\./g' {} +
           find app/src/main/java -name "SettingsActivity.kt" -exec sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0' {} +
           find app/src/main/java -name "*.kt" -exec sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' {} +
 
-          # リソース配置
-          find raw_extract -path "*/res/layout/*.xml" -exec cp {} app/src/main/res/layout/ \; 2>/dev/null || true
+          # 3. 【重要】不純物（AndroidManifest.xml等）をリソースから排除
+          find raw_extract -path "*/res/layout/*.xml" | while read x; do
+            fname=$(basename "$x")
+            # 大文字を含む、または Manifest という名前のファイルを layout フォルダに入れない
+            if [[ ! "$fname" =~ [A-Z] && "$fname" != "AndroidManifest.xml" ]]; then
+              cp "$x" "app/src/main/res/layout/"
+            fi
+          done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
-          # マニフェスト生成
+          # 4. 適切なマニフェストを物理配置
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
               </application>
           </manifest>
           EOF
 
       - name: Build with Gradle
         run: |
-          # ビルド設定生成
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           cat <<EOF > build.gradle
@@ -80,11 +90,10 @@ jobs:
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
           }
           EOF
-          # システムのgradleを使用
           gradle assembleRelease --no-daemon
 
       - name: Archive
         uses: actions/upload-artifact@v4
         with:
-          name: arc-apk
+          name: arc-apk-final
           path: app/build/outputs/apk/release/*.apk
