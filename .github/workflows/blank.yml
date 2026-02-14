@@ -1,4 +1,4 @@
-name: Pure Build to APK (Resource Cleaning Fix)
+name: Pure Build to APK (JVM Target Sync)
 
 on:
   push:
@@ -42,13 +42,11 @@ jobs:
             sed -i "/import .*\.R;/d" "$dest"
           done
 
-          # 5. 【修正】リソースの厳密抽出（大文字ファイルとManifestを除外）
+          # 5. リソースの厳密抽出
           find raw_extract -path "*/res/layout/*.xml" -not -name "AndroidManifest.xml" | while read x; do
-            # ファイル名を小文字に変換してコピー（Androidの命名規則遵守）
             base=$(basename "$x" | tr '[:upper:]' '[:lower:]')
             cp "$x" "app/src/main/res/layout/$base"
           done
-          
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
           # 6. マニフェスト再構築
@@ -87,7 +85,17 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-CLEAN" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-STABLE" }
+              
+              # 【核心】JavaとKotlinのターゲットを物理的に17へ統一
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+              
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
@@ -104,5 +112,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-clean-apk
+          name: metron-final-apk
           path: app/build/outputs/apk/release/*.apk
