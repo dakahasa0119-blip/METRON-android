@@ -1,4 +1,4 @@
-name: Pure Build to APK (Signed)
+name: Pure Build to APK (Crash Fix)
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Auto-Sign APK
+      - name: Surgical Code Cleaning & Build
         run: |
           # 1. 物理特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
@@ -39,25 +39,32 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソースの物理移動
+          # 3. 【外科手術】ソースコードの物理洗浄
           find "$PROJECT_DIR_ORIGIN" -name "*.kt" -o -name "*.java" | while read file; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
             cp "$file" "$dest"
+            
+            # Firebase関連のインポートとコードを物理的に消去
             sed -i "/import com.google.firebase/d" "$dest"
-            sed -i "/FirebaseApp.initializeApp/d" "$dest"
+            sed -i "/FirebaseApp/d" "$dest"
+            sed -i "/FirebaseAnalytics/d" "$dest"
+            sed -i "/FirebaseMessaging/d" "$dest"
+            
+            # パッケージ名とRクラスの強制同期
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
             sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
           done
 
-          # 4. リソースコピー
+          # 4. リソース救出
           find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" | while read xml; do
             if [[ "$(basename "$xml")" != "AndroidManifest.xml" ]]; then
               cp "$xml" app/src/main/res/layout/
             fi
           done
 
-          # 5. Manifest生成
+          # 5. ManifestとGradleの安定版生成
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
+          
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
@@ -72,7 +79,6 @@ jobs:
           </manifest>
           EOF
 
-          # 6. Gradle設定（署名有効化）
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
           echo "include ':app'" > settings.gradle
@@ -94,20 +100,8 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig {
-                  applicationId '$PACKAGE_NAME'
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                      // リリースビルドにデバッグ署名を強制適用
-                      signingConfig signingConfigs.debug
-                  }
-              }
+              defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -116,7 +110,7 @@ jobs:
           }
           EOF
 
-          # 7. 実行
+          # 6. 実行
           gradle wrapper
           ./gradlew assembleRelease --no-daemon
 
