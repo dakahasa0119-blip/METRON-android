@@ -1,4 +1,4 @@
-name: Pure Build to APK (Flattened Source Fix)
+name: Pure Build to APK (Resource Cleaning Fix)
 
 on:
   push:
@@ -16,45 +16,46 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Surgical Flattening & Extraction
+      - name: Surgical Extraction & Resource Filtering
         run: |
           # 1. 物理構造の完全初期化
           unzip -o *.zip -d raw_extract
           
-          # 2. パッケージ名を MainActivity.kt から直接特定
+          # 2. パッケージ特定
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' "$MAIN_FILE")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 3. Android標準構造を再定義
+          # 3. 構造再定義
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 4. ソースファイルの物理強制移動（階層を無視してフラットに集約）
+          # 4. ソースファイルの物理強制移動
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
-            # パッケージ名の同期と不要なFirebaseの除去
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
             sed -i "/import com.google.firebase/d" "$dest"
             sed -i "/FirebaseApp/d" "$dest"
             sed -i "/import .*\.R;/d" "$dest"
           done
 
-          # 5. リソースの物理強制移動
-          find raw_extract -name "*.xml" | while read x; do
-            if grep -q "layout" "$x" || grep -q "android:" "$x"; then
-              cp "$x" app/src/main/res/layout/ 2>/dev/null || true
-            fi
+          # 5. 【修正】リソースの厳密抽出（大文字ファイルとManifestを除外）
+          find raw_extract -path "*/res/layout/*.xml" -not -name "AndroidManifest.xml" | while read x; do
+            # ファイル名を小文字に変換してコピー（Androidの命名規則遵守）
+            base=$(basename "$x" | tr '[:upper:]' '[:lower:]')
+            cp "$x" "app/src/main/res/layout/$base"
           done
+          
+          find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
-          # 6. マニフェスト再構築（Launcher直結）
+          # 6. マニフェスト再構築
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
-              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:icon="@android:mipmap/sym_def_app_icon">
+              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -86,7 +87,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-RECOVERED" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-CLEAN" }
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
@@ -103,5 +104,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-flattened-apk
+          name: metron-clean-apk
           path: app/build/outputs/apk/release/*.apk
