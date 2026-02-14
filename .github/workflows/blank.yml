@@ -1,4 +1,4 @@
-name: Pure Build to APK (Version Downgrade Fix)
+name: Pure Build to APK (Wrapper Force Fix)
 
 on:
   push:
@@ -63,14 +63,13 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build System Finalizer (Stable Versions)
+      - name: Build System Setup
         run: |
           PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' $(find app/src/main/java -name "MainActivity.kt"))
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-          # AGPとKotlinのバージョンを、Gradle 8.0系に最適化
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -103,13 +102,15 @@ jobs:
           }
           EOF
 
-          # Gradleのバージョンを意図的に 8.2 に落とす (8.7でのAPI衝突を避ける)
-          gradle wrapper --gradle-version 8.2
+          # 【物理的修正】システム版gradleを殺し、Wrapperを生成・指定
+          /usr/bin/gradle wrapper --gradle-version 8.2
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+
+      - name: Build with Wrapper (Force 8.2)
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-stable-apk
+          name: metron-wrapper-fix-apk
           path: app/build/outputs/apk/release/*.apk
