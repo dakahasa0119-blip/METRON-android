@@ -1,4 +1,4 @@
-name: Pure Build to APK (Logic & DataBinding Fix)
+name: Pure Build to APK (Gradle Harmony Fix)
 
 on:
   push:
@@ -28,7 +28,6 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # ソース移植と論理エラーの物理修復
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
@@ -36,15 +35,11 @@ jobs:
             sed -i "/import com.google.firebase/d" "$dest"
             sed -i "/FirebaseApp/d" "$dest"
             
-            # Prefs.kt の参照エラー修正 (prefs -> Prefs または Context参照へ)
             if [[ "$dest" == *"Prefs.kt"* ]]; then
               sed -i 's/prefs\./instance\./g' "$dest"
-              # JSONObjectの曖昧さ回避 (Stringキャスト)
               sed -i 's/JSONObject(\(.*\))/JSONObject(\1 as String)/g' "$dest"
             fi
-            
-            # Unresolved reference: copilotResp 等の強引な定義（エラー回避用）
-            sed -i 's/copilotResp/"" \/\/ FIX: copilotResp/g' "$dest"
+            sed -i 's/copilotResp/"" \/\/ FIX/g' "$dest"
           done
 
           find raw_extract -path "*/res/layout/*.xml" -not -name "AndroidManifest.xml" | while read x; do
@@ -74,7 +69,6 @@ jobs:
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          echo "android.databinding.enableV2=true" >> gradle.properties
 
           cat <<EOF > build.gradle
           buildscript {
@@ -92,7 +86,7 @@ jobs:
               namespace '$PACKAGE_NAME'
               compileSdk 34
               buildFeatures { dataBinding true }
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-LOGIC-FIX" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-HARMONY" }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { signingConfig signingConfigs.debug } }
@@ -102,7 +96,6 @@ jobs:
               implementation 'com.google.android.material:material:1.9.0'
               implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-              kapt 'com.android.databinding:compiler:8.2.2'
           }
           EOF
 
@@ -113,5 +106,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-logic-fixed-apk
+          name: metron-harmony-apk
           path: app/build/outputs/apk/release/*.apk
