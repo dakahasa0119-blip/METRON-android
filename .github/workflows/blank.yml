@@ -1,62 +1,84 @@
-- name: Gradle Build Phase
-        run: |
-          # 1. ビルド環境の固定化 (Gradle 8.5 を強制使用)
-          # gradlew がないので、wrapper を生成してバージョンを固定する
-          gradle wrapper --gradle-version 8.5
+name: ARC_GENESIS
 
-          # 2. ビルド設定ファイルの生成
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Physical Extraction
+        run: |
+          unzip -o *.zip -d raw_extract || true
+          MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
+          if [ -z "$MAIN_FILE" ]; then PKG="com.arc"; else PKG=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//'); fi
+          PPATH=$(echo "$PKG" | tr '.' '/')
+          mkdir -p "app/src/main/java/$PPATH" "app/src/main/res/layout" "app/src/main/res/values"
+          find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
+            dest="app/src/main/java/$PPATH/$(basename "$f")"; cp "$f" "$dest"
+            sed -i "s/^package .*/package $PKG/" "$dest"
+          done
+          # Stubbing
+          find app/src/main/java -name "Prefs.kt" -exec sed -i 's/prefs\./(null as android.content.SharedPreferences?)\./g' {} +
+          find app/src/main/java -name "SettingsActivity.kt" -exec sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0' {} +
+          find app/src/main/java -name "*.kt" -exec sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' {} +
+          # Resource Clean
+          find raw_extract -path "*/res/layout/*.xml" | while read x; do
+            fname=$(basename "$x"); if [[ ! "$fname" =~ [A-Z] && "$fname" != "AndroidManifest.xml" ]]; then cp "$x" "app/src/main/res/layout/"; fi
+          done
+          find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
+          # Manifest
+          cat <<EOF > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Build with Fixed Gradle
+        run: |
+          gradle wrapper --gradle-version 8.5
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { 
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
-              }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
-
           cat <<EOF > app/build.gradle
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-          }
+          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android {
               namespace 'com.arc'
               compileSdk 34
-              defaultConfig {
-                  applicationId "com.arc"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0-FIXED"
-              }
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                      signingConfig signingConfigs.debug
-                  }
-              }
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
+              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
-              implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
           }
           EOF
-          
-          # 3. 固定されたバージョン (8.5) でビルド実行
           chmod +x gradlew
           ./gradlew clean assembleRelease --no-daemon
+
+      - name: Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: arc-genesis-apk
+          path: app/build/outputs/apk/release/*.apk
