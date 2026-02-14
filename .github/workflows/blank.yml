@@ -1,4 +1,4 @@
-name: Pure Build to APK (Physical Fix + Debug)
+name: Pure Build to APK (Launcher Direct Link)
 
 on:
   push:
@@ -9,75 +9,66 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Preparation
+      - name: Surgical Extraction & Alignment
         run: |
-          unzip -o *.zip -d .
-          echo "include ':app'" > settings.gradle
-          echo "android.useAndroidX=true" > gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-
-      - name: Surgical Integration & Debug Injection
-        run: |
-          # 1. パッケージ名特定
-          MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
-          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN" || echo "com.arc")
+          # 1. 物理構造の初期化
+          unzip -o *.zip -d temp_src
+          
+          # 2. パッケージ名を物理特定（最優先）
+          PACKAGE_NAME=$(grep -rP 'package \K[\w.]+' temp_src | head -n 1 | grep -oP '[\w.]+' || echo "com.arc")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
-          # 2. 構造再構築
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソース移植と「超優先」デバッグ回路注入
-          find . -name "*.kt" -o -name "*.java" | while read file; do
-            if [[ "$file" != *"app/src/main/java"* ]]; then
-              dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
-              cp "$file" "$dest"
-              sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
-              sed -i "/import com.google.firebase/d" "$dest"
-              sed -i "/FirebaseApp/d" "$dest"
-              sed -i "/import .*\.R;/d" "$dest"
-              
-              # onCreateの直後（superの前）に、クラッシュを捕まえる網を張る
-              if grep -q "onCreate" "$dest"; then
-                sed -i '/super.onCreate/i \        Thread.setDefaultUncaughtExceptionHandler { _, e -> val tv = android.widget.TextView(this); tv.text = "--- METRON ERROR ---\\n" + e.stackTraceToString(); tv.setTextColor(android.graphics.Color.RED); tv.setBackgroundColor(android.graphics.Color.BLACK); tv.setTextSize(10f); runOnUiThread { setContentView(tv) } };' "$dest"
-              fi
-            fi
+          # 3. オリジナルソースの移植（パッケージ名強制同期）
+          find temp_src -name "*.kt" -o -name "*.java" | while read f; do
+            dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
+            cp "$f" "$dest"
+            sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
+            sed -i "/import com.google.firebase/d" "$dest"
+            sed -i "/FirebaseApp/d" "$dest"
+            sed -i "/import .*\.R;/d" "$dest"
           done
 
-          # 4. リソース救出
-          find . -name "*.xml" -not -name "AndroidManifest.xml" -path "*/res/*" -exec cp {} app/src/main/res/layout/ \; 2>/dev/null || true
-          
-          # 5. 【修正】package属性を物理的に記述したManifest
+          # 4. リソースの救出
+          find temp_src -name "*.xml" -path "*/res/*" | while read x; do
+            cp "$x" app/src/main/res/layout/ 2>/dev/null || true
+          done
+
+          # 5. 【核心】Launcher Activityを物理特定し、マニフェストへ刻む
+          # zip内のActivityクラスを強制的に「起動用」に指定
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
-          
+
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
-              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:icon="@android:mipmap/sym_def_app_icon">
                   <activity android:name=".$REAL_ACTIVITY" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHer" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
               </application>
           </manifest>
           EOF
 
-      - name: Final Build
+      - name: Build Finalizer
         run: |
-          # 前回の失敗を踏まえ、変数を直接埋め込む
-          MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/app/src/main/" | head -n 1)
-          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN")
+          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' app/src/main/AndroidManifest.xml)
+          echo "include ':app'" > settings.gradle
+          echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
 
           cat <<EOF > build.gradle
           buildscript {
@@ -93,9 +84,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG" }
-              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-              kotlinOptions { jvmTarget = '17' }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-LAUNCHER-FIX" }
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
@@ -112,5 +101,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-debug-apk
+          name: metron-launcher-fix
           path: app/build/outputs/apk/release/*.apk
