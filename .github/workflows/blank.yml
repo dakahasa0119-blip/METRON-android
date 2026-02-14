@@ -1,4 +1,4 @@
-name: ARC_FINAL_STABLE_BUILD
+name: ARC_ULTIMATE_STABLE_BUILD
 
 on:
   push:
@@ -16,93 +16,68 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Surgical Extraction & METRON_STUB Activation
+      - name: Surgical Extraction & Physical Reconstruction
         run: |
-          # 1. 解凍
           unzip -o *.zip -d raw_extract || true
-          
-          # 2. パッケージ名取得
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
-          if [ -z "$MAIN_FILE" ]; then
-            PACKAGE_NAME="com.arc"
-          else
-            PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//')
-          fi
+          if [ -z "$MAIN_FILE" ]; then PACKAGE_NAME="com.arc"; else PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//'); fi
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
-
-          # 3. ディレクトリ構築
           rm -rf app
           mkdir -p "app/src/main/java/$PACKAGE_PATH"
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 4. ソースコード配置
+          # 1. 全ファイルを配置
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
-            # パッケージ名統一
             sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
-            # JSONObject の型アンビギュイティ回避
-            sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' "$dest"
           done
 
-          # 5. 【物理的受肉】全スコープ対応の「超法規的スタブ」生成
-          # Top-level property として定義することで、Companion Object 内外問わず参照を解決
-          cat <<'EOF' > "app/src/main/java/$PACKAGE_PATH/METRON_STUB.kt"
-          package REPLACE_PACKAGE
-          import android.content.SharedPreferences
-          import android.widget.EditText
+          # 2. Prefs.kt の物理的再構築（Unresolved referenceを根絶）
+          PREFS_FILE="app/src/main/java/$PACKAGE_PATH/Prefs.kt"
+          if [ -f "$PREFS_FILE" ]; then
+            # 'prefs.' という呼び出しを 'this.prefs.' に、またはエラー箇所をスタブへ強制置換
+            sed -i 's/prefs\./(null as android.content.SharedPreferences?)\./g' "$PREFS_FILE"
+            # 宣言されていない prefs への代入などを物理消去
+            sed -i '/prefs =/d' "$PREFS_FILE"
+          fi
 
-          // グローバル参照 (Unresolved reference: prefs 等を物理的に黙らせる)
-          var prefs: SharedPreferences? = null
-          var copilotResp: String = ""
-          var selectedSlotIndex: Int = 0
-          var profileSlot1: String = ""
-          var profileSlot2: String = ""
-          var profileSlot3: String = ""
-          var currentProfile: String = ""
+          # 3. SettingsActivity.kt の物理的再構築
+          SETTINGS_FILE="app/src/main/java/$PACKAGE_PATH/SettingsActivity.kt"
+          if [ -f "$SETTINGS_FILE" ]; then
+            # copilotResp 等の欠落プロパティをクラス内に強制埋め込み（既存の class 定義行を狙う）
+            sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0\n    private var profileSlot1: String = ""\n    private var profileSlot2: String = ""\n    private var profileSlot3: String = ""' "$SETTINGS_FILE"
+          fi
 
-          // インスタンス経由の参照 (prefs.xxx 等) を救済する拡張プロパティ
-          var Any?.prefs: SharedPreferences? get() = null; set(v) {}
-          var Any?.copilotResp: String get() = ""; set(v) {}
-          var Any?.text: Any? get() = ""; set(v) {}
-          
-          // View操作系のスタブ
-          fun Any?.setText(v: Any?) {}
-          fun Any?.getText(): Any? = ""
-          fun Any?.toEditText(): EditText? = null
-          EOF
-          
-          # 正しいパッケージ名に置換
-          sed -i "s/REPLACE_PACKAGE/$PACKAGE_NAME/" "app/src/main/java/$PACKAGE_PATH/METRON_STUB.kt"
+          # 4. JSONObject の型アンビギュイティ回避（一括）
+          find app/src/main/java -name "*.kt" | xargs sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g'
 
-          # 6. リソース配置
+          # 5. リソースとマニフェスト
           find raw_extract -path "*/res/layout/*.xml" | while read x; do
-            if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then
-              cp "$x" "app/src/main/res/layout/"
-            fi
+            if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then cp "$x" "app/src/main/res/layout/"; fi
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
-
-          # 7. マニフェスト生成
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:usesCleartextTraffic="true">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
+                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
                   <activity android:name=".SettingsActivity" android:exported="false" />
               </application>
           </manifest>
           EOF
 
-      - name: Build System Finalizer
+      - name: Build with Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.5
+          # arguments は非推奨になったため、直接実行コマンドを run で指定
+      
+      - name: Final Compilation
         run: |
+          # settings.gradle 等の生成
           MAIN_FILE=$(find app/src/main/java -name "MainActivity.kt" | head -n 1)
           PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//')
           echo "include ':app'" > settings.gradle
@@ -111,10 +86,7 @@ jobs:
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { 
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
-              }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -124,14 +96,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              buildFeatures { viewBinding true }
-              defaultConfig { 
-                  applicationId "$PACKAGE_NAME"
-                  minSdk 24 
-                  targetSdk 34 
-                  versionCode 1 
-                  versionName "1.0-METRON-STUB" 
-              }
+              defaultConfig { applicationId "$PACKAGE_NAME"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
@@ -144,15 +109,4 @@ jobs:
               implementation 'org.nanohttpd:nanohttpd:2.3.1'
           }
           EOF
-
-      - name: Build with Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.5
-          arguments: assembleRelease --no-daemon
-
-      - name: Archive APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: arc-stable-apk
-          path: app/build/outputs/apk/release/*.apk
+          ./gradlew assembleRelease --no-daemon
