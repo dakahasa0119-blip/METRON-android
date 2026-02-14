@@ -24,26 +24,35 @@ jobs:
         cache-disabled: true
 
     - name: Unzip project
-      # 名前に関わらずZIPを解凍。
-      run: unzip -o *.zip -d .
+      # 何があろうとZIPを解凍し、中身をログに出して物理確認する
+      run: |
+        unzip -o *.zip -d extracted_project
+        echo "--- Physical File Structure ---"
+        find extracted_project -maxdepth 3
 
     - name: Build and Configure
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # 1. 解凍された中から gradlew を物理捜索して移動
+        # 1. gradlewを全ディレクトリから物理捜索
         GRADLE_PATH=$(find . -name "gradlew" -type f | head -n 1)
-        if [ -z "$GRADLE_PATH" ]; then echo "gradlew not found"; exit 1; fi
-        cd $(dirname "$GRADLE_PATH")
+        if [ -z "$GRADLE_PATH" ]; then 
+          echo "Error: gradlew is missing from the ZIP."
+          exit 1
+        fi
         
-        # 2. 実行権限を付与
+        # 2. その場所を「工場の拠点」にする
+        PROJECT_ROOT=$(dirname "$GRADLE_PATH")
+        cd "$PROJECT_ROOT"
         chmod +x ./gradlew
         
         # 3. Firebase設定の注入（appフォルダを特定）
         APP_DIR=$(find . -name "app" -type d | head -n 1)
-        echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
+        if [ -n "$APP_DIR" ]; then
+          echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
+        fi
 
-        # 4. 構築実行（Releaseビルドで解析用Mappingを生成）
+        # 4. 構築実行（Releaseビルドで解析の魂を生成）
         ./gradlew assembleRelease --no-daemon
         
         # 5. 成果物を固定パスへ救出
