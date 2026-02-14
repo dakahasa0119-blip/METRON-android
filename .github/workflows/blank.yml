@@ -1,4 +1,4 @@
-name: Pure Build to APK (Gradle Harmony Fix)
+name: Pure Build to APK (Version Downgrade Fix)
 
 on:
   push:
@@ -63,17 +63,21 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build System Finalizer
+      - name: Build System Finalizer (Stable Versions)
         run: |
           PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' $(find app/src/main/java -name "MainActivity.kt"))
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
+          # AGPとKotlinのバージョンを、Gradle 8.0系に最適化
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.1.1'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.22' 
+              }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -86,7 +90,7 @@ jobs:
               namespace '$PACKAGE_NAME'
               compileSdk 34
               buildFeatures { dataBinding true }
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-HARMONY" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 33; versionCode 1; versionName "1.0-STABLE-ENV" }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { signingConfig signingConfigs.debug } }
@@ -94,17 +98,18 @@ jobs:
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.9.0'
-              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.core:core-ktx:1.10.1'
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
           EOF
 
-          gradle wrapper --gradle-version 8.7
+          # Gradleのバージョンを意図的に 8.2 に落とす (8.7でのAPI衝突を避ける)
+          gradle wrapper --gradle-version 8.2
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-harmony-apk
+          name: metron-stable-apk
           path: app/build/outputs/apk/release/*.apk
