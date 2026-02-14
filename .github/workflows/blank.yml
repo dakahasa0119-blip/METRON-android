@@ -1,4 +1,4 @@
-name: Pure Build to APK (Syntax & Launcher Fix)
+name: Pure Build to APK (Flattened Source Fix)
 
 on:
   push:
@@ -16,43 +16,46 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Surgical Extraction & Alignment
+      - name: Surgical Flattening & Extraction
         run: |
-          # 1. 物理構造の初期化
-          unzip -o *.zip -d temp_src
+          # 1. 物理構造の完全初期化
+          unzip -o *.zip -d raw_extract
           
-          # 2. パッケージ名を物理特定
-          PACKAGE_NAME=$(grep -rP 'package \K[\w.]+' temp_src | head -n 1 | grep -oP '[\w.]+' || echo "com.arc")
+          # 2. パッケージ名を MainActivity.kt から直接特定
+          MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
+          PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' "$MAIN_FILE")
           PACKAGE_PATH=$(echo "$PACKAGE_NAME" | tr '.' '/')
 
+          # 3. Android標準構造を再定義
           rm -rf app
           mkdir -p app/src/main/java/$PACKAGE_PATH
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. オリジナルソースの移植（パッケージ名強制同期）
-          find temp_src -name "*.kt" -o -name "*.java" | while read f; do
+          # 4. ソースファイルの物理強制移動（階層を無視してフラットに集約）
+          find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
+            # パッケージ名の同期と不要なFirebaseの除去
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
             sed -i "/import com.google.firebase/d" "$dest"
             sed -i "/FirebaseApp/d" "$dest"
             sed -i "/import .*\.R;/d" "$dest"
           done
 
-          # 4. リソースの救出
-          find temp_src -name "*.xml" -path "*/res/*" | while read x; do
-            cp "$x" app/src/main/res/layout/ 2>/dev/null || true
+          # 5. リソースの物理強制移動
+          find raw_extract -name "*.xml" | while read x; do
+            if grep -q "layout" "$x" || grep -q "android:" "$x"; then
+              cp "$x" app/src/main/res/layout/ 2>/dev/null || true
+            fi
           done
 
-          # 5. Launcher Activityを物理特定し、マニフェストへ刻む
-          REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
-
+          # 6. マニフェスト再構築（Launcher直結）
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
               <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:icon="@android:mipmap/sym_def_app_icon">
-                  <activity android:name=".$REAL_ACTIVITY" android:exported="true">
+                  <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -62,9 +65,9 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build Finalizer
+      - name: Build System Sync
         run: |
-          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' app/src/main/AndroidManifest.xml)
+          PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' $(find app/src/main/java -name "MainActivity.kt"))
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
@@ -83,7 +86,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-FIX" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-RECOVERED" }
               buildTypes { release { signingConfig signingConfigs.debug } }
           }
           dependencies {
@@ -100,5 +103,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-launcher-fix
+          name: metron-flattened-apk
           path: app/build/outputs/apk/release/*.apk
