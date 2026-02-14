@@ -1,4 +1,22 @@
-- name: Surgical Extraction & Build Setup
+name: ARC_FINAL_BUILD
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Surgical Extraction
         run: |
           unzip -o *.zip -d raw_extract || true
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
@@ -9,44 +27,77 @@
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 1. ソースコードの配置（置換を最小限にし、拡張プロパティで解決）
           find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
             sed -i "s/^package .*/package $PACKAGE_NAME/" "$dest"
           done
 
-          # 2. 【物理的解決】不足変数を外部から受肉させる「拡張プロパティ」の生成
           cat <<EOF > "app/src/main/java/$PACKAGE_PATH/SafetyExtensions.kt"
           package $PACKAGE_NAME
-          import android.content.SharedPreferences
-
-          // PrefsクラスやそのCompanion Object内で「prefs」という名前の参照を物理的に解決
-          var Any?.prefs: Any? get() = this; set(value) {}
-          var Any?.copilotResp: String get() = ""; set(value) {}
-          
-          // 既存コードが sharedPreferences を prefs と呼んでいる場合のブリッジ
-          val Any?.sharedPrefs: SharedPreferences? get() = null
+          var Any?.prefs: Any? get() = this; set(v) {}
+          var Any?.copilotResp: String get() = ""; set(v) {}
           EOF
 
-          # 3. リソース配置
           find raw_extract -path "*/res/layout/*.xml" | while read x; do
             if [[ "$(basename "$x")" != "AndroidManifest.xml" ]]; then cp "$x" "app/src/main/res/layout/"; fi
           done
           find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
 
-          # 4. マニフェスト生成
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:usesCleartextTraffic="true">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
+                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
                   <activity android:name=".SettingsActivity" android:exported="false" />
               </application>
           </manifest>
           EOF
+
+      - name: Build System Finalizer
+        run: |
+          MAIN_FILE=$(find app/src/main/java -name "MainActivity.kt" | head -n 1)
+          PACKAGE_NAME=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//')
+          echo "include ':app'" > settings.gradle
+          echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          cat <<EOF > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2'; classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          cat <<EOF > app/build.gradle
+          apply plugin: 'com.android.application'
+          apply plugin: 'org.jetbrains.kotlin.android'
+          android {
+              namespace '$PACKAGE_NAME'
+              compileSdk 34
+              buildFeatures { viewBinding true }
+              defaultConfig { applicationId "$PACKAGE_NAME"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
+              buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+              implementation 'org.nanohttpd:nanohttpd:2.3.1'
+          }
+          EOF
+
+      - name: Build with Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.5
+          arguments: assembleRelease --no-daemon
+
+      - name: Archive APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: arc-final-build-apk
+          path: app/build/outputs/apk/release/*.apk
