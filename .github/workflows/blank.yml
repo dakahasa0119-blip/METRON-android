@@ -1,4 +1,4 @@
-name: DEBUG_ERROR_TRACKER
+name: CRASH_LOOP_FINDER
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -8,22 +8,38 @@ jobs:
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
       
-      - name: Force Reconstruction and Log Errors
+      - name: Reconstruct for Runtime Stability
         run: |
-          # 1. 物理ディレクトリの強制生成
+          # 1. 物理配置の再構築（パッケージパスを厳密に固定）
           mkdir -p app/src/main/java/com/arc
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 2. ソースの配置 (ここがエラーの源泉)
+          # 2. 全ソースを com.arc パッケージへ強制移動
           unzip -o *.zip -d raw_extract || true
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
+          # コード内の package 宣言を物理的に統一
+          find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
 
-          # 3. 旗を立てる
+          # 3. AndroidManifest.xml を「起動成功」に全振り
+          cat <<EOF > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  <activity android:name="com.arc.MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Build Debug APK
+        run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
-          
-          # 4. 最小限の build.gradle 生成
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -31,13 +47,20 @@ jobs:
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
-
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
-          android { namespace 'com.arc'; compileSdk 34 }
+          android { 
+              namespace 'com.arc'
+              compileSdk 34
+              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG" }
+          }
           EOF
-
-          # 5. エラーをログに表示させる (失敗しても echo で続行させない)
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
-          ./gradlew :app:compileDebugKotlin --stacktrace
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Artifact Delivery
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk-to-inspect
+          path: app/build/outputs/apk/debug/*.apk
