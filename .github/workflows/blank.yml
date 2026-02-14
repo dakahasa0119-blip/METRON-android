@@ -1,4 +1,4 @@
-name: Build and Deploy to Firebase (Absolute Construction)
+name: Build and Deploy to Firebase (Forced Namespace Injector)
 
 on:
   push:
@@ -30,33 +30,31 @@ jobs:
       env:
         FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
       run: |
-        # 1. プロジェクトの「真の根源」を物理捜索
-        # build.gradle または settings.gradle がある場所を特定する
+        # 1. プロジェクトルートを特定
         ROOT_FILE=$(find . -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
-        if [ -z "$ROOT_FILE" ]; then
-          echo "Error: No Gradle project found in ZIP."
-          find . -maxdepth 3
-          exit 1
-        fi
-        
         PROJECT_ROOT=$(dirname "$ROOT_FILE")
-        echo "Project root found at: $PROJECT_ROOT"
         cd "$PROJECT_ROOT"
         
-        # 2. 物理的欠損の補完（その場でエンジンを生成）
+        # 2. 物理的欠損の補完（gradlewを生成）
         gradle wrapper
         chmod +x gradlew
         
-        # 3. Firebase設定の注入（appフォルダを特定）
-        APP_DIR=$(find . -name "app" -type d | head -n 1)
-        if [ -n "$APP_DIR" ]; then
-          echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
+        # 3. 名前空間エラーの物理粉砕
+        # app/build.gradle を探し、android { の直後に namespace を注入する
+        APP_GRADLE=$(find . -name "build.gradle" | grep "/app/" | head -n 1)
+        if [ -n "$APP_GRADLE" ]; then
+          sed -i '/android {/a \    namespace "com.arc.trial"' "$APP_GRADLE"
+          echo "Namespace injected into $APP_GRADLE"
         fi
 
-        # 4. 構築実行（Releaseビルド）
+        # 4. Firebase設定の注入
+        APP_DIR=$(dirname "$APP_GRADLE")
+        echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
+
+        # 5. 構築実行
         ./gradlew assembleRelease --no-daemon
         
-        # 5. 成果物を固定パスへ救出（上位階層へ退避）
+        # 6. 成果物を救出
         mkdir -p $GITHUB_WORKSPACE/temp_artifacts
         find . -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
 
