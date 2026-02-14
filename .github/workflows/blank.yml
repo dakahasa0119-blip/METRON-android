@@ -1,4 +1,4 @@
-name: CRASH_LOOP_FIXED_LAUNCH
+name: ARC_FORCE_OVERWRITE_SIGN
 
 on:
   push:
@@ -10,36 +10,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
 
-      - name: Reconstruct for Runtime Stability
+      - name: Create Fixed Keystore
         run: |
-          # 1. 物理配置の再構築
+          # 物理的な「署名鍵」をその場で生成し、常にこれを使うように固定する
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Reconstruct Project
+        run: |
           mkdir -p app/src/main/java/com/arc
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
-
-          # 2. 全ソースを com.arc パッケージへ強制移動
           unzip -o *.zip -d raw_extract || true
           find raw_extract -name "*.kt" -o -name "*.java" -exec cp {} app/src/main/java/com/arc/ \;
           find app/src/main/java/com/arc -name "*.kt" -exec sed -i "s/^package .*/package com.arc/" {} +
-
-          # 3. AndroidManifest.xml (アイコンとランチャー設定を物理固定)
+          
+          # AndroidManifest (現状維持)
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application 
-                  android:label="ARC_METRON" 
-                  android:icon="@android:mipmap/sym_def_app_icon"
-                  android:theme="@style/Theme.AppCompat.NoActionBar"
-                  android:allowBackup="true"
-                  android:supportsRtl="true">
-                  
-                  <activity 
-                      android:name="com.arc.MainActivity" 
-                      android:exported="true">
+              <application android:label="ARC_METRON" android:icon="@android:mipmap/sym_def_app_icon" android:theme="@style/Theme.AppCompat.NoActionBar">
+                  <activity android:name="com.arc.MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -49,50 +42,48 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build Debug APK with Force Override
+      - name: Build with Fixed Signature
         run: |
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
           
-          # Root build.gradle
-          cat <<EOF > build.gradle
-          buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies { 
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
-              }
-          }
-          allprojects { repositories { google(); mavenCentral() } }
-          EOF
-
-          # App build.gradle (versionCode 1,000,000 で過去を粉砕する)
+          # App build.gradle (署名設定を物理的に追加)
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android { 
               namespace 'com.arc'
               compileSdk 34
+              signingConfigs {
+                  release {
+                      storeFile file("../debug.keystore")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
               defaultConfig { 
                   applicationId "com.arc" 
                   minSdk 24 
                   targetSdk 34 
-                  versionCode 1000000 
-                  versionName "1.0-OVERRIDE" 
+                  versionCode 2000000  # 圧倒的な数値
+                  versionName "1.0-FIXED-SIGN" 
+              }
+              buildTypes {
+                  debug { signingConfig signingConfigs.release }
+                  release { signingConfig signingConfigs.release }
               }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
-              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
           EOF
-
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Artifact Delivery
+      - name: Delivery
         uses: actions/upload-artifact@v4
         with:
-          name: arc-override-stable
+          name: arc-signed-apk
           path: app/build/outputs/apk/debug/*.apk
