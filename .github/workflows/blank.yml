@@ -1,104 +1,22 @@
-name: ARC_GENESIS_ULTIMATE
-
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
+name: DEBUG_ERROR_TRACKER
+on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Android Project
+        with: { java-version: '17', distribution: 'temurin' }
+      
+      - name: Force Project Structure
         run: |
-          # 1. 物理展開
-          unzip -o *.zip -d raw_extract || true
-          MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
-          if [ -z "$MAIN_FILE" ]; then PKG="com.arc"; else PKG=$(grep -m 1 '^package' "$MAIN_FILE" | awk '{print $2}' | sed 's/;//'); fi
-          PPATH=$(echo "$PKG" | tr '.' '/')
-          mkdir -p "app/src/main/java/$PPATH" "app/src/main/res/layout" "app/src/main/res/values"
-          
-          # 2. ソース配置 & 修復
-          find raw_extract -name "*.kt" -o -name "*.java" | while read f; do
-            dest="app/src/main/java/$PPATH/$(basename "$f")"
-            cp "$f" "$dest"
-            sed -i "s/^package .*/package $PKG/" "$dest"
-          done
-          find app/src/main/java -name "Prefs.kt" -exec sed -i 's/prefs\./(null as android.content.SharedPreferences?)\./g' {} +
-          find app/src/main/java -name "SettingsActivity.kt" -exec sed -i '/class SettingsActivity/a \    private var copilotResp: String = ""\n    private var selectedSlotIndex: Int = 0' {} +
-          find app/src/main/java -name "*.kt" -exec sed -i 's|JSONObject(\([^)]*\))|JSONObject(\1.toString())|g' {} +
-          
-          # 3. リソース不純物排除
-          find raw_extract -path "*/res/layout/*.xml" | while read x; do
-            fname=$(basename "$x")
-            if [[ ! "$fname" =~ [A-Z] && "$fname" != "AndroidManifest.xml" ]]; then cp "$x" "app/src/main/res/layout/"; fi
-          done
-          find raw_extract -path "*/res/values/*.xml" -exec cp {} app/src/main/res/values/ \; 2>/dev/null || true
-          
-          # 4. マニフェスト生成
-          cat <<EOF > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="ARC" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
-
-      - name: Build with Fixed Gradle
-        run: |
-          # 1. プロジェクトの旗（settings.gradle）を先に立てる
+          # 旗を立て、Gradleにプロジェクトとして認識させる
           echo "include ':app'" > settings.gradle
           echo "android.useAndroidX=true" > gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          
-          # 2. 環境を 8.5 に固定（ここでプロジェクトとして認識させる）
           gradle wrapper --gradle-version 8.5
           
-          # 3. 残りのビルド構成を生成
-          cat <<EOF > build.gradle
-          buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies { 
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
-              }
-          }
-          allprojects { repositories { google(); mavenCentral() } }
-          EOF
-          
-          cat <<EOF > app/build.gradle
-          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
-          android {
-              namespace 'com.arc'
-              compileSdk 34
-              defaultConfig { applicationId "com.arc"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-ULTIMATE" }
-              buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
-              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-              kotlinOptions { jvmTarget = '17' }
-          }
-          dependencies {
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.11.0'
-              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-          }
-          EOF
-          
-          # 4. 固定された 8.5 で完遂
+      - name: Execute Build and Capture Errors
+        run: |
+          # エラーが出ても中断せず、詳細なスタックトレースを表示する
           chmod +x gradlew
-          ./gradlew clean assembleRelease --no-daemon
-
-      - name: Archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: arc-genesis-apk
-          path: app/build/outputs/apk/release/*.apk
+          ./gradlew assembleDebug --stacktrace --info || echo "BUILD_FAILED_SEE_LOGS"
