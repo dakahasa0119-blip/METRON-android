@@ -1,4 +1,4 @@
-name: Build and Deploy to Firebase
+name: Pure Build to APK
 
 on:
   push:
@@ -25,9 +25,7 @@ jobs:
       - name: Unzip
         run: unzip -o *.zip -d .
 
-      - name: Build and Final Modernization
-        env:
-          FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICES_JSON }}
+      - name: Build Pure APK
         run: |
           # 1. 物理特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
@@ -41,23 +39,25 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
 
-          # 3. ソースの物理移動と洗浄
+          # 3. ソースの物理移動（Firebase関連コードの無効化）
           find "$PROJECT_DIR_ORIGIN" -name "*.kt" -o -name "*.java" | while read file; do
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$file")"
             cp "$file" "$dest"
-            sed -i "/import .*\.R;/d" "$dest"
+            # Firebaseへの依存コードがあればコメントアウトまたは洗浄
+            sed -i "/import com.google.firebase/d" "$dest"
+            sed -i "/FirebaseApp.initializeApp/d" "$dest"
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
             sed -i "2i import ${PACKAGE_NAME}.R;" "$dest"
           done
           find "$PROJECT_DIR_ORIGIN" -name "*.xml" -path "*/layout/*" -exec cp {} app/src/main/res/layout/ \;
 
-          # 4. 【今回の鍵】近代化スイッチ（gradle.properties）の強制生成
+          # 4. 近代化設定
           cat <<EOF > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
           EOF
 
-          # 5. Manifest/settings/build.gradle の再定義
+          # 5. 設計図生成（Firebaseプラグインを完全に除去）
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -78,7 +78,6 @@ jobs:
               repositories { google(); mavenCentral() }
               dependencies {
                   classpath 'com.android.tools.build:gradle:8.2.2'
-                  classpath 'com.google.gms:google-services:4.4.0'
                   classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
               }
           }
@@ -88,7 +87,6 @@ jobs:
           cat <<EOF > app/build.gradle
           apply plugin: 'com.android.application'
           apply plugin: 'org.jetbrains.kotlin.android'
-          apply plugin: 'com.google.gms.google-services'
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
@@ -98,24 +96,15 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.9.0'
               implementation 'androidx.core:core-ktx:1.12.0'
-              implementation platform('com.google.firebase:firebase-bom:32.7.0')
-              implementation 'com.google.firebase:firebase-analytics'
           }
           EOF
 
-          # 6. Firebase設定と実行
-          echo "$FIREBASE_JSON" > "app/google-services.json"
+          # 6. 実行
           gradle wrapper
           ./gradlew assembleRelease --no-daemon
 
-          # 7. 救出
-          mkdir -p $GITHUB_WORKSPACE/temp_artifacts
-          find . -name "*-release-unsigned.apk" -exec cp {} $GITHUB_WORKSPACE/temp_artifacts/app-release-unsigned.apk \;
-
-      - name: Upload
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
+      - name: Archive APK
+        uses: actions/upload-artifact@v4
         with:
-          appId: ${{ secrets.FIREBASE_APP_ID }}
-          token: ${{ secrets.FIREBASE_TOKEN }}
-          groups: testers
-          file: temp_artifacts/app-release-unsigned.apk
+          name: metron-apk
+          path: app/build/outputs/apk/release/*.apk
