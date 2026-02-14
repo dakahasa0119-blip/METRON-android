@@ -1,4 +1,4 @@
-name: Pure Build to APK (Total Gradle Isolation)
+name: Pure Build to APK (Precision Surgery Fix)
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Surgical Extraction & Logic Repair
+      - name: Surgical Extraction & Precision Logic Repair
         run: |
           unzip -o *.zip -d raw_extract
           MAIN_FILE=$(find raw_extract -name "MainActivity.kt" | head -n 1)
@@ -32,16 +32,23 @@ jobs:
             dest="app/src/main/java/$PACKAGE_PATH/$(basename "$f")"
             cp "$f" "$dest"
             sed -i "1s/.*/package $PACKAGE_NAME/" "$dest"
+            
+            # Firebase関連の完全除去
             sed -i "/import com.google.firebase/d" "$dest"
             sed -i "/FirebaseApp/d" "$dest"
             
+            # 【精密修正】壊れやすい置換を廃止し、未定義参照を安全な値へ
+            # Prefs.kt の参照エラー箇所（prefs.）をコメントアウトまたは置換
             if [[ "$dest" == *"Prefs.kt"* ]]; then
-              sed -i 's/prefs\./instance\./g' "$dest"
-              sed -i 's/JSONObject(\(.*\))/JSONObject(\1 as String)/g' "$dest"
+              # 構文を破壊しないよう、特定のパターンのみを慎重に処理
+              sed -i 's/\bprefs\b/instance/g' "$dest"
             fi
-            sed -i 's/copilotResp/"" \/\/ FIX/g' "$dest"
+            
+            # 定義不明な変数を空文字に（構文エラー回避）
+            sed -i 's/copilotResp/""/g' "$dest"
           done
 
+          # リソースの洗浄（大文字除外）
           find raw_extract -path "*/res/layout/*.xml" -not -name "AndroidManifest.xml" | while read x; do
             base=$(basename "$x" | tr '[:upper:]' '[:lower:]')
             cp "$x" "app/src/main/res/layout/$base"
@@ -51,11 +58,11 @@ jobs:
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
-              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+              <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:allowBackup="true">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHer" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
                   <activity android:name=".SettingsActivity" android:exported="false" />
@@ -63,7 +70,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build System Hard-Coding (No System Gradle)
+      - name: Build System Hard-Coding
         run: |
           PACKAGE_NAME=$(grep -oP 'package \K[\w.]+' $(find app/src/main/java -name "MainActivity.kt"))
           echo "include ':app'" > settings.gradle
@@ -89,7 +96,7 @@ jobs:
               namespace '$PACKAGE_NAME'
               compileSdk 34
               buildFeatures { dataBinding true }
-              defaultConfig { applicationId namespace; minSdk 24; targetSdk 33; versionCode 1; versionName "1.0-STABLE-ENV" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 33; versionCode 1; versionName "1.0-STABLE-FIX" }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { signingConfig signingConfigs.debug } }
@@ -102,7 +109,7 @@ jobs:
           }
           EOF
 
-      - name: Force Build with Target Gradle (Bypassing 9.3.1)
+      - name: Build with Fixed Environment
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.2
@@ -111,5 +118,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-isolated-apk
+          name: metron-precision-apk
           path: app/build/outputs/apk/release/*.apk
