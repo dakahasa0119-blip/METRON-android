@@ -1,4 +1,4 @@
-name: Pure Build to APK (Emergency Debug Injection)
+name: Pure Build to APK (Physical Fix + Debug)
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      - name: Surgical Alignment & Emergency Debug Injection
+      - name: Surgical Integration & Debug Injection
         run: |
           # 1. パッケージ名特定
           MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
@@ -46,11 +46,9 @@ jobs:
               sed -i "/FirebaseApp/d" "$dest"
               sed -i "/import .*\.R;/d" "$dest"
               
-              # 【核心】onCreateの冒頭（superの前）に回路をねじ込み、リソース不足の即死を捕まえる
+              # onCreateの直後（superの前）に、クラッシュを捕まえる網を張る
               if grep -q "onCreate" "$dest"; then
-                sed -i '/onCreate.*{/a \        Thread.setDefaultUncaughtExceptionHandler { _, e -> val tv = android.widget.TextView(this); tv.text = "--- METRON CRASH DETECTED ---\\n" + e.stackTraceToString(); tv.setTextColor(android.graphics.Color.RED); tv.setBackgroundColor(android.graphics.Color.BLACK); tv.setTextSize(10f); runOnUiThread { setContentView(tv) } }; try {'
-                # メソッドの最後に閉じカッコを追加するための暫定処理（簡易的）
-                sed -i '/setContentView/a \        } catch (e: Exception) { Thread.getDefaultUncaughtExceptionHandler().uncaughtException(Thread.currentThread(), e) }' "$dest"
+                sed -i '/super.onCreate/i \        Thread.setDefaultUncaughtExceptionHandler { _, e -> val tv = android.widget.TextView(this); tv.text = "--- METRON ERROR ---\\n" + e.stackTraceToString(); tv.setTextColor(android.graphics.Color.RED); tv.setBackgroundColor(android.graphics.Color.BLACK); tv.setTextSize(10f); runOnUiThread { setContentView(tv) } };' "$dest"
               fi
             fi
           done
@@ -58,24 +56,29 @@ jobs:
           # 4. リソース救出
           find . -name "*.xml" -not -name "AndroidManifest.xml" -path "*/res/*" -exec cp {} app/src/main/res/layout/ \; 2>/dev/null || true
           
-          # 5. AndroidManifest (Namespace準拠)
+          # 5. 【修正】package属性を物理的に記述したManifest
           REAL_ACTIVITY=$(grep -rE "class .* : .*Activity|class .* extends .*Activity" app/src/main/java | head -n 1 | grep -oP "class \K\w+" || echo "MainActivity")
+          
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$PACKAGE_NAME">
               <application android:label="METRON" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                  <activity android:name="${PACKAGE_NAME}.${REAL_ACTIVITY}" android:exported="true">
+                  <activity android:name=".$REAL_ACTIVITY" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+                          <category android:name="android.intent.category.LAUNCHer" />
                       </intent-filter>
                   </activity>
               </application>
           </manifest>
           EOF
 
-      - name: Build with Gradle
+      - name: Final Build
         run: |
+          # 前回の失敗を踏まえ、変数を直接埋め込む
+          MANIFEST_ORIGIN=$(find $(pwd) -name "AndroidManifest.xml" | grep "/app/src/main/" | head -n 1)
+          PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST_ORIGIN")
+
           cat <<EOF > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -90,7 +93,7 @@ jobs:
           android {
               namespace '$PACKAGE_NAME'
               compileSdk 34
-              defaultConfig { applicationId '$PACKAGE_NAME'; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG-V2" }
+              defaultConfig { applicationId namespace; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0-DEBUG" }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
               buildTypes { release { signingConfig signingConfigs.debug } }
@@ -109,5 +112,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: metron-debug-v2
+          name: metron-debug-apk
           path: app/build/outputs/apk/release/*.apk
