@@ -32,27 +32,30 @@ jobs:
           # 1. 物理的浄化
           find . -path "*/src/main/res/layout/AndroidManifest.xml" -delete
 
-          # 2. プロジェクト構造の物理特定（絶対パスで固定）
+          # 2. 物理特定（絶対パス）
           APP_GRADLE=$(find $(pwd) -name "build.gradle" | grep "/app/" | head -n 1)
           APP_DIR=$(dirname "$APP_GRADLE")
           ROOT_FILE=$(find $(pwd) -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
           PROJECT_ROOT=$(dirname "$ROOT_FILE")
 
-          # 3. 名前空間と依存関係の注入
+          # 3. 魂の抽出と精密注入
           MANIFEST=$(find "$PROJECT_ROOT" -name "AndroidManifest.xml" | grep "/main/" | head -n 1)
           PACKAGE_NAME=$(grep -oP 'package="\K[^"]+' "$MANIFEST" || echo "com.arc.trial")
           
+          # 名前空間の注入（既存削除→android { 直後に挿入）
           sed -i '/namespace /d' "$APP_GRADLE"
           sed -i "/android {/a \    namespace '$PACKAGE_NAME'" "$APP_GRADLE"
+          
+          # 依存関係の精密注入（dependencies { の直後に挿入）
           if ! grep -q "androidx.appcompat:appcompat" "$APP_GRADLE"; then
-            echo "dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }" >> "$APP_GRADLE"
+            sed -i "/dependencies {/a \    implementation 'androidx.appcompat:appcompat:1.6.1'" "$APP_GRADLE"
+            echo "Successfully operated: Injected AppCompat dependency into existing block."
           fi
 
-          # 4. Firebase設定の物理注入（絶対パス $APP_DIR を使用）
+          # 4. Firebase設定の物理注入
           echo "$FIREBASE_JSON" > "${APP_DIR}/google-services.json"
-          echo "Fixed Path Delivery: ${APP_DIR}/google-services.json"
 
-          # 5. 環境構築と実行
+          # 5. 実行
           cd "$PROJECT_ROOT"
           gradle wrapper
           chmod +x gradlew
